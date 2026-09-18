@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { CatalogModal, hitToWatch } from "@/components/catalog-modal";
 import { LogoMark, LogoWordmark } from "@/components/logo";
@@ -11,11 +11,14 @@ import {
   NOTIONAL_PRESETS,
   type DisplayUnit,
 } from "@/lib/display";
+import { cmcCurrencyUrl, edgarCompanyUrl } from "@/lib/links";
 import {
   DEFAULT_WATCHLIST,
+  deskPath,
   loadActiveId,
   loadWatchlist,
   removeWatch,
+  resolveAssetParam,
   saveActiveId,
   saveWatchlist,
   upsertWatch,
@@ -76,14 +79,21 @@ export default function Page() {
   const [notional, setNotional] = useState(10_000);
   const [board, setBoard] = useState<BoardRow[]>([]);
   const [boardLoading, setBoardLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const list = loadWatchlist();
     setWatchlist(list);
-    const active = loadActiveId();
-    setClusterId(
-      list.some((x) => x.id === active) ? active : list[0]?.id ?? "gold",
+    const fromUrl = resolveAssetParam(
+      new URLSearchParams(window.location.search).get("asset"),
     );
+    const stored = loadActiveId();
+    const active =
+      fromUrl ??
+      (list.some((x) => x.id === stored) ? stored : list[0]?.id ?? "gold");
+    setClusterId(active);
+    saveActiveId(active);
     const savedUnit = localStorage.getItem(UNIT_KEY) as DisplayUnit | null;
     if (savedUnit === "usd" || savedUnit === "pct" || savedUnit === "bps") {
       setUnit(savedUnit);
@@ -91,6 +101,24 @@ export default function Page() {
     const savedSize = Number(localStorage.getItem(SIZE_KEY));
     if (Number.isFinite(savedSize) && savedSize > 0) setNotional(savedSize);
     setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const next = deskPath(clusterId, watchlist);
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (current === next) return;
+    const existing = resolveAssetParam(
+      new URLSearchParams(window.location.search).get("asset"),
+    );
+    if (existing && existing.toLowerCase() === clusterId.toLowerCase()) return;
+    window.history.replaceState(null, "", next);
+  }, [clusterId, hydrated, watchlist]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current) window.clearTimeout(copyTimer.current);
+    };
   }, []);
 
   function openItem(item: WatchItem) {
@@ -128,6 +156,20 @@ export default function Page() {
     localStorage.setItem(SIZE_KEY, String(next));
   }
 
+  async function shareDesk() {
+    const path = deskPath(clusterId, watchlist);
+    const url = `${window.location.origin}${path}`;
+    window.history.replaceState(null, "", path);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      if (copyTimer.current) window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  }
+
   useEffect(() => {
     if (!hydrated) return;
     let cancelled = false;
@@ -144,6 +186,30 @@ export default function Page() {
         if (cancelled) return;
         setDesk(next);
         setSelected(next.ticket.buySymbol);
+        const item: WatchItem = {
+          id: next.cluster.id,
+          rwaId: next.cluster.rwaId ?? 0,
+          symbol: next.cluster.rwaSymbols[0] ?? next.cluster.label,
+          name: next.cluster.label,
+          assetType: next.cluster.assetClass,
+        };
+        setWatchlist((prev) => {
+          if (
+            prev.some(
+              (x) =>
+                x.id === item.id || (item.rwaId > 0 && x.rwaId === item.rwaId),
+            )
+          ) {
+            return prev;
+          }
+          const pinned = upsertWatch(prev, item);
+          saveWatchlist(pinned);
+          return pinned;
+        });
+        if (clusterId !== next.cluster.id) {
+          setClusterId(next.cluster.id);
+          saveActiveId(next.cluster.id);
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled)
@@ -244,6 +310,8 @@ export default function Page() {
           loading={loading}
           unit={unit}
           onUnit={changeUnit}
+          copied={copied}
+          onShare={shareDesk}
         />
 
         <CatalogModal
@@ -489,6 +557,8 @@ function Header({
   loading,
   unit,
   onUnit,
+  copied,
+  onShare,
 }: {
   watchlist: WatchItem[];
   clusterId: string;
@@ -500,6 +570,8 @@ function Header({
   loading: boolean;
   unit: DisplayUnit;
   onUnit: (u: DisplayUnit) => void;
+  copied: boolean;
+  onShare: () => void;
 }) {
   return (
     <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-[#0b0d10]/80 backdrop-blur-md">
@@ -568,6 +640,14 @@ function Header({
               );
             })}
           </div>
+          <button
+            type="button"
+            onClick={onShare}
+            title="Copy a link to this desk"
+            className="shrink-0 rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:border-white/25 hover:text-white"
+          >
+            {copied ? "Copied" : "Share"}
+          </button>
           <UnitToggle unit={unit} onUnit={onUnit} />
         </div>
       </div>
@@ -1202,7 +1282,20 @@ function WrapperTable({
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-white/35">{w.name}</div>
+                  {w.slug ? (
+                    <a
+                      href={cmcCurrencyUrl(w.slug)}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      title="Open on CoinMarketCap"
+                      className="text-xs text-white/35 hover:text-gold-400 hover:underline"
+                    >
+                      {w.name}
+                    </a>
+                  ) : (
+                    <div className="text-xs text-white/35">{w.name}</div>
+                  )}
                 </td>
                 <td className="px-3 py-3 text-white/60">{w.issuerName || "—"}</td>
                 <td className="px-3 py-3 text-right font-mono num text-white">
@@ -1337,7 +1430,17 @@ function UnderlyingCard({ info }: { info: UnderlyingInfo | null }) {
         {info.cik && (
           <>
             <dt>CIK</dt>
-            <dd className="text-right font-mono text-white/70">{info.cik}</dd>
+            <dd className="text-right font-mono">
+              <a
+                href={edgarCompanyUrl(info.cik)}
+                target="_blank"
+                rel="noreferrer"
+                title="Open SEC EDGAR filings"
+                className="text-gold-400 hover:underline"
+              >
+                {info.cik}
+              </a>
+            </dd>
           </>
         )}
         {info.employees != null && (
@@ -1360,15 +1463,29 @@ function UnderlyingCard({ info }: { info: UnderlyingInfo | null }) {
       {info.about && (
         <p className="mt-3 text-xs leading-5 text-white/45">{info.about}</p>
       )}
-      {info.website && (
-        <a
-          href={info.website}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-3 inline-block text-[11px] text-gold-400 hover:underline"
-        >
-          {info.website.replace(/^https?:\/\//, "")}
-        </a>
+      {(info.website || info.cik) && (
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+          {info.website && (
+            <a
+              href={info.website}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[11px] text-gold-400 hover:underline"
+            >
+              {info.website.replace(/^https?:\/\//, "")}
+            </a>
+          )}
+          {info.cik && (
+            <a
+              href={edgarCompanyUrl(info.cik)}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[11px] text-gold-400 hover:underline"
+            >
+              SEC EDGAR filings
+            </a>
+          )}
+        </div>
       )}
     </section>
   );

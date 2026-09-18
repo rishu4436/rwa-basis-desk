@@ -50,3 +50,27 @@ export function removeWatch(list: WatchItem[], id: string): WatchItem[] {
   const next = list.filter((x) => x.id !== id);
   return next.length ? next : DEFAULT_WATCHLIST;
 }
+
+/** Map /desk?asset=GOLD (or gold, rwa-86) onto a cluster id. */
+export function resolveAssetParam(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const t = raw.trim();
+  if (!t) return null;
+  if (/^rwa-\d+$/i.test(t)) return t.toLowerCase();
+  const known = DEFAULT_WATCHLIST.find(
+    (x) =>
+      x.id.toLowerCase() === t.toLowerCase() ||
+      x.symbol.toLowerCase() === t.toLowerCase(),
+  );
+  return known ? known.id : t;
+}
+
+/** Tweet-friendly key for /desk?asset= — GOLD not gold. */
+export function shareAssetKey(clusterId: string, list: WatchItem[]): string {
+  const item = list.find((x) => x.id === clusterId);
+  return item?.symbol ?? clusterId;
+}
+
+export function deskPath(clusterId: string, list: WatchItem[]): string {
+  return `/desk?asset=${encodeURIComponent(shareAssetKey(clusterId, list))}`;
+}

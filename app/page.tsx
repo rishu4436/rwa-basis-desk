@@ -18,7 +18,7 @@ export default function Landing() {
               GitHub
             </a>
             <Link
-              href="/desk"
+              href="/desk?asset=GOLD"
               className="rounded-full bg-white px-4 py-1.5 text-sm font-medium text-[#0b0d10] hover:bg-gold-400"
             >
               Open the desk
@@ -42,7 +42,7 @@ export default function Landing() {
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link
-              href="/desk"
+              href="/desk?asset=GOLD"
               className="rounded-full bg-gold-400 px-5 py-2.5 text-sm font-medium text-[#0b0d10] hover:bg-gold-400/90"
             >
               Open the desk
@@ -123,7 +123,7 @@ export default function Landing() {
               </p>
             </div>
             <Link
-              href="/desk"
+              href="/desk?asset=GOLD"
               className="shrink-0 rounded-full bg-white px-5 py-2.5 text-sm font-medium text-[#0b0d10] hover:bg-gold-400"
             >
               Launch Basis Desk

@@ -60,6 +60,8 @@ export type Venue = {
 export type Wrapper = {
   symbol: string;
   name: string;
+  /** CMC currency slug for coinmarketcap.com/currencies/{slug}/ */
+  slug: string | null;
   cryptoId: number | null;
   rwaId: number | null;
   issuerId: string | null;

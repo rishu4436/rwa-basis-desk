@@ -71,6 +71,7 @@ export async function loadDesk(
       ...w,
       issuerName: w.issuerName || prev.issuerName,
       name: w.name || prev.name,
+      slug: w.slug || prev.slug,
       pairCount: Math.max(prev.pairCount, w.pairCount),
       volume24h: w.volume24h || prev.volume24h,
       marketCap: w.marketCap || prev.marketCap,
@@ -158,6 +159,7 @@ export async function loadDesk(
           push({
             ...emptyWrapper(cluster, symbol),
             name: String(token.name ?? asset.name ?? symbol),
+            slug: token.slug ? String(token.slug) : null,
             cryptoId,
             rwaId,
             issuerId: token.issuer_id != null ? String(token.issuer_id) : null,
@@ -255,6 +257,7 @@ export async function loadDesk(
           if (w.cryptoId !== cryptoId) continue;
           w.name = String(row.name ?? w.name);
           w.symbol = String(row.symbol ?? w.symbol);
+          w.slug = String(row.slug ?? "") || w.slug;
           w.rawPriceUsd = quote.price ?? w.rawPriceUsd;
           w.normalizedUsd = normalize(
             cluster,
@@ -462,6 +465,7 @@ function emptyWrapper(
   return {
     symbol,
     name: symbol,
+    slug: null,
     cryptoId: seed?.cryptoId ?? null,
     rwaId: null,
     issuerId: null,

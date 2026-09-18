@@ -10,3 +10,5 @@ images/
 scripts/shot.mjs
 playwright-report
 test-results
+
+.vercel

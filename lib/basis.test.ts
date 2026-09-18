@@ -16,11 +16,19 @@ import {
   extraOnNotional,
   formatDelta,
 } from "./display";
+import { cmcCurrencyUrl, edgarCompanyUrl } from "./links";
 import type { Wrapper } from "./types";
+import {
+  DEFAULT_WATCHLIST,
+  deskPath,
+  resolveAssetParam,
+  shareAssetKey,
+} from "./watchlist";
 
 function wrap(partial: Partial<Wrapper> & Pick<Wrapper, "symbol">): Wrapper {
   return {
     name: partial.symbol,
+    slug: null,
     cryptoId: null,
     rwaId: null,
     issuerId: null,
@@ -266,5 +274,36 @@ describe("venues", () => {
     ]);
     const top = venuesFor(parsed, 5176);
     assert.equal(top.find((v) => v.recommended)?.exchange, "Binance");
+  });
+});
+
+describe("shareable desk URLs", () => {
+  it("maps GOLD and gold onto the gold cluster", () => {
+    assert.equal(resolveAssetParam("GOLD"), "gold");
+    assert.equal(resolveAssetParam("gold"), "gold");
+    assert.equal(resolveAssetParam("SPY"), "spy");
+    assert.equal(resolveAssetParam("rwa-86"), "rwa-86");
+    assert.equal(resolveAssetParam("AAPL"), "AAPL");
+    assert.equal(resolveAssetParam("  "), null);
+    assert.equal(resolveAssetParam(null), null);
+  });
+
+  it("writes /desk?asset=GOLD for tweets and judges", () => {
+    assert.equal(shareAssetKey("gold", DEFAULT_WATCHLIST), "GOLD");
+    assert.equal(deskPath("gold", DEFAULT_WATCHLIST), "/desk?asset=GOLD");
+    assert.equal(deskPath("spy", DEFAULT_WATCHLIST), "/desk?asset=SPY");
+  });
+});
+
+describe("source links", () => {
+  it("pads CIK for EDGAR company search", () => {
+    assert.equal(
+      edgarCompanyUrl("320193"),
+      "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193&owner=exclude&count=40",
+    );
+    assert.equal(
+      cmcCurrencyUrl("tether-gold"),
+      "https://coinmarketcap.com/currencies/tether-gold/",
+    );
   });
 });
