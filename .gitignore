@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+.env
+.env.local
+.env*.local
+*.log
+.DS_Store
+images/
+scripts/shot.mjs
+playwright-report
+test-results
