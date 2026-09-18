@@ -1,4 +1,4 @@
-import type { ClusterDef } from "./types";
+import type { AssetClass, ClusterDef } from "./types";
 
 /**
  * Curated underlyings for the demo. Gold/SPY IDs are public CMC UCIDs
