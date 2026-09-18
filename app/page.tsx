@@ -380,7 +380,7 @@ function LoadingPop({
 }) {
   return (
     <div
-      className="absolute inset-0 z-30 flex items-center justify-center bg-[#0b0d10]/70 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0d10]/70 backdrop-blur-sm xl:left-56"
       role="status"
       aria-live="polite"
       aria-busy="true"
