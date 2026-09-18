@@ -22,7 +22,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000) for the landing page, then **Open the desk**. Direct app: [http://localhost:3000/desk](http://localhost:3000/desk).
 
 ```bash
 npm test
@@ -51,7 +51,7 @@ Track: **Real World Assets**
 DoraHacks: https://dorahacks.io/hackathon/coinmarketcap-api-202609
 
 1. Public GitHub repo (this project).
-2. Live demo URL (Vercel).
+2. Live demo URL (Vercel landing + `/desk`).
 3. ~90s screen recording: Gold ticket → skip illiquid → TRADE wrapper → Binance print → `$/%/bps` → search `AAPL`.
 4. X post: DoraHacks link + demo + video + `#BuildwithCMC`.
 5. BUIDL: named CMC endpoints (see below) + API-feedback note (see below).
