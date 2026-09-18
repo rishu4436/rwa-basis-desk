@@ -44,6 +44,21 @@ body {
   animation: pulse-live 1.8s ease-in-out infinite;
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid rgba(224, 180, 74, 0.2);
+  border-top-color: #e0b44a;
+  border-radius: 999px;
+  animation: spin 0.7s linear infinite;
+}
+
 @keyframes shimmer {
   100% {
     transform: translateX(100%);

@@ -203,6 +203,9 @@ export default function Page() {
     return () => window.removeEventListener("keydown", onKey);
   }, [watchlist]);
 
+  const loadingItem = watchlist.find((w) => w.id === clusterId);
+  const loadingLabel = loadingItem?.symbol ?? clusterId.toUpperCase();
+
   const rows = desk?.main?.length ? desk.main : (desk?.wrappers ?? []);
   const selectedWrapper =
     rows.find((w) => w.symbol === selected) ??
@@ -224,7 +227,8 @@ export default function Page() {
         onSearch={() => setCatalogOpen(true)}
       />
 
-      <div className="min-w-0 flex-1">
+      <div className="relative min-w-0 flex-1">
+        {loading && <LoadingPop symbol={loadingLabel} first={!desk} />}
         <Header
           watchlist={watchlist}
           clusterId={clusterId}
@@ -362,6 +366,38 @@ export default function Page() {
             </>
           ) : null}
         </main>
+      </div>
+    </div>
+  );
+}
+
+function LoadingPop({
+  symbol,
+  first,
+}: {
+  symbol: string;
+  first: boolean;
+}) {
+  return (
+    <div
+      className="absolute inset-0 z-30 flex items-center justify-center bg-[#0b0d10]/70 backdrop-blur-sm"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="mx-4 w-full max-w-sm rounded-2xl border border-white/10 bg-[#11141a] px-6 py-7 text-center shadow-2xl">
+        <div className="flex justify-center">
+          <LogoMark className="h-10 w-10" />
+        </div>
+        <div className="mx-auto mt-5 spinner" />
+        <p className="mt-5 text-sm font-medium text-white">
+          Loading {symbol}
+        </p>
+        <p className="mt-2 text-xs leading-5 text-white/45">
+          {first
+            ? "Fetching wrappers, venues, and the ticket from CoinMarketCap."
+            : "Updating the desk for this ticker. The last view stays underneath."}
+        </p>
       </div>
     </div>
   );
