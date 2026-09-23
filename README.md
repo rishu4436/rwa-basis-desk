@@ -81,7 +81,7 @@ The **watchlist board** on the home desk is the scan: every pinned name, the cal
 ## Demo path (90 seconds)
 
 1. Open **Gold**. Tradeable board is XAUt / PAXG (and any other name above the volume floor).
-2. Ticket should **skip** the cheap illiquid wrapper (VNXAU / XAUM live in the dust drawer).
+2. A **trap** banner flags the cheap illiquid wrapper (VNXAU / XAUM in the dust drawer). The ticket itself is the liquid book — usually **no trade** if XAUt and PAXG are tight.
 3. **Where to trade** lists spot venues from `market-pairs/list` — the **print** is the CEX with real volume.
 4. 30-day chart: fade only if today is a range extreme; otherwise the ticket stays **no trade**.
 5. Switch to **S&P 500 (SPY)** and **NVIDIA**.
@@ -97,7 +97,7 @@ Speak in dollars: “same ounce, this one is $36 more and has 1/400th the volume
 4. Batch `GET /v3/cryptocurrency/quotes/latest` for live price/volume.
 5. `GET /v5/real-world-assets/market-pairs/list` for venue count.
 6. Fair value = volume-weighted mid of wrappers above a volume floor (thin names do not pull the peg).
-7. Ticket from liquid spread + tradability (A–F from 24h volume).
+7. Ticket from the **full liquid book** (cheapest vs richest above the floor). A thin cheap name is a trap warning, not the whole call.
 8. 30-day spread = `crypto_id` → `GET /v2/cryptocurrency/ohlcv/historical` (RWA has no history endpoint).
 
 Gram-denominated gold (CGO and similar) is scaled to **USD per troy ounce**.
@@ -109,8 +109,8 @@ Gram-denominated gold (CGO and similar) is scaled to **USD per troy ounce**.
 | `GET /v5/real-world-assets/map` | Resolve GOLD / NVDA / SPY to `rwa_id` (0 credits) |
 | `GET /v5/real-world-assets/quotes/latest` | Asset quotes + `tokens[]` with issuer |
 | `GET /v5/real-world-assets/market-pairs/list` | How many venues you can actually exit on |
-| `GET /v5/real-world-assets/issuers/list` | Issuer directory (cached) |
-| `GET /v3/cryptocurrency/quotes/latest` | Per-wrapper price, volume, market cap |
+| `GET /v5/real-world-assets/info` | Underlying card: CIK → EDGAR, industry, about |
+| `GET /v3/cryptocurrency/quotes/latest` | Per-wrapper price, volume, market cap, slug |
 | `GET /v2/cryptocurrency/ohlcv/historical` | Wrapper spread history (RWA has no timeseries yet) |
 
 ## API feedback (for CMC)

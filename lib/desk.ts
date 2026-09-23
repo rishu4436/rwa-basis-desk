@@ -1,6 +1,7 @@
 import {
   applyFairValue,
   buildTicket,
+  liquidSpreadPair,
   splitBoard,
   volumeWeightedFairValue,
 } from "./basis";
@@ -202,18 +203,6 @@ export async function loadDesk(
         if (n) w.pairCount = n;
       }
 
-      if (!lite) {
-        try {
-          await cached("issuers", 10 * 60_000, () =>
-            cmcGet("/v5/real-world-assets/issuers/list"),
-          );
-          endpointsUsed.push("GET /v5/real-world-assets/issuers/list");
-        } catch (err) {
-          warnings.push(
-            `issuers/list: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
     } catch (err) {
       warnings.push(
         `RWA family: ${err instanceof Error ? err.message : String(err)}`,
@@ -286,31 +275,34 @@ export async function loadDesk(
   const scored = applyFairValue(list, fair);
   const { main, dust } = splitBoard(scored, cluster.volumeFloorUsd);
 
-  const liquidPair = [...main]
-    .filter((w) => w.cryptoId != null && w.normalizedUsd != null)
-    .sort((a, b) => b.volume24h - a.volume24h);
+  const pair = liquidSpreadPair(scored, cluster.volumeFloorUsd);
   let spread = null;
   let history = null;
-  if (!lite && liquidPair[0]?.cryptoId && liquidPair[1]?.cryptoId) {
+  if (
+    !lite &&
+    pair?.cheap.cryptoId &&
+    pair?.rich.cryptoId &&
+    pair.cheap.cryptoId !== pair.rich.cryptoId
+  ) {
     try {
       const hist = await fetchSpreadHistory(
         {
-          symbol: liquidPair[0].symbol,
-          cryptoId: liquidPair[0].cryptoId,
-          ouncesPerToken: liquidPair[0].ouncesPerToken,
+          symbol: pair.cheap.symbol,
+          cryptoId: pair.cheap.cryptoId,
+          ouncesPerToken: pair.cheap.ouncesPerToken,
         },
         {
-          symbol: liquidPair[1].symbol,
-          cryptoId: liquidPair[1].cryptoId,
-          ouncesPerToken: liquidPair[1].ouncesPerToken,
+          symbol: pair.rich.symbol,
+          cryptoId: pair.rich.cryptoId,
+          ouncesPerToken: pair.rich.ouncesPerToken,
         },
       );
       if (hist.endpoint) endpointsUsed.push(hist.endpoint);
       history = hist.summary;
       spread = {
         clusterId: cluster.id,
-        buySymbol: liquidPair[0].symbol,
-        avoidSymbol: liquidPair[1].symbol,
+        buySymbol: pair.cheap.symbol,
+        avoidSymbol: pair.rich.symbol,
         points: hist.points,
         summary: hist.summary,
         endpointsUsed: hist.endpoint ? [hist.endpoint] : [],
@@ -412,10 +404,11 @@ export async function loadBoard(ids: string[]): Promise<BoardRow[]> {
             id,
             symbol: d.cluster.rwaSymbols[0] ?? d.cluster.label,
             name: d.cluster.label,
-            action: d.ticket.action,
+            action: d.ticket.trap ? "skip" : d.ticket.action,
             headline: d.ticket.headline,
             buySymbol: d.ticket.buySymbol,
             avoidSymbol: d.ticket.avoidSymbol,
+            trapSymbol: d.ticket.trap?.symbol ?? null,
             spreadBps: d.ticket.spreadBps,
             dollarGap: d.ticket.dollarGap,
             fairValueUsd: d.fairValueUsd,
@@ -431,6 +424,7 @@ export async function loadBoard(ids: string[]): Promise<BoardRow[]> {
             headline: err instanceof Error ? err.message : "Failed to load",
             buySymbol: null,
             avoidSymbol: null,
+            trapSymbol: null,
             spreadBps: null,
             dollarGap: null,
             fairValueUsd: null,

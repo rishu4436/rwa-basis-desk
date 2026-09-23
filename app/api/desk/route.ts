@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { UnknownAssetError } from "@/lib/catalog";
 import { CmcError } from "@/lib/cmc";
 import { loadDesk } from "@/lib/desk";
 
@@ -10,7 +11,12 @@ export async function GET(req: NextRequest) {
     const desk = await loadDesk(cluster);
     return NextResponse.json(desk);
   } catch (err) {
-    const status = err instanceof CmcError && err.status === 401 ? 401 : 500;
+    const status =
+      err instanceof UnknownAssetError
+        ? 404
+        : err instanceof CmcError && err.status === 401
+          ? 401
+          : 500;
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Desk failed" },
       { status },

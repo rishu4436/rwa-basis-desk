@@ -3,9 +3,11 @@ import { describe, it } from "node:test";
 import {
   applyFairValue,
   buildTicket,
+  liquidSpreadPair,
   splitBoard,
   tradabilityFromVolume,
   volumeWeightedFairValue,
+  wrapperLabel,
 } from "./basis";
 import { summarizeHistory } from "./history";
 import { parseVenues, venuesFor } from "./venues";
@@ -88,7 +90,7 @@ describe("fair value", () => {
 });
 
 describe("ticket", () => {
-  it("skips a cheap illiquid wrapper", () => {
+  it("warns on a cheap illiquid wrapper when it is the only other name", () => {
     const scored = applyFairValue(
       [
         wrap({ symbol: "XAUM", normalizedUsd: 4100, volume24h: 7_000 }),
@@ -98,7 +100,8 @@ describe("ticket", () => {
     );
     const ticket = buildTicket(scored, 4164, 1_000_000, "troy ounce");
     assert.equal(ticket.action, "skip");
-    assert.equal(ticket.avoidSymbol, "XAUM");
+    assert.equal(ticket.trap?.symbol, "XAUM");
+    assert.equal(ticket.buySymbol, "XAUt");
   });
 
   it("says wait when liquid wrappers are tight", () => {
@@ -111,9 +114,11 @@ describe("ticket", () => {
     );
     const ticket = buildTicket(scored, 4164.5, 1_000_000, "troy ounce");
     assert.equal(ticket.action, "wait");
+    assert.match(ticket.headline, /bps apart/);
+    assert.equal(ticket.trap, null);
   });
 
-  it("does not treat sub-floor volume as liquid even if grade is C", () => {
+  it("keeps the liquid ticket when a dust trap exists", () => {
     const scored = applyFairValue(
       [
         wrap({ symbol: "XAUM", normalizedUsd: 4302, volume24h: 447_000 }),
@@ -123,12 +128,14 @@ describe("ticket", () => {
       4322,
     );
     const ticket = buildTicket(scored, 4322, 1_000_000, "troy ounce");
-    assert.equal(ticket.action, "skip");
-    assert.equal(ticket.avoidSymbol, "XAUM");
+    assert.equal(ticket.action, "wait");
+    assert.equal(ticket.trap?.symbol, "XAUM");
     assert.equal(ticket.buySymbol, "XAUt");
+    assert.equal(ticket.avoidSymbol, "PAXG");
+    assert.match(ticket.headline, /bps apart/);
   });
 
-  it("says buy when a liquid wrapper is clearly rich", () => {
+  it("waits on a wide liquid gap when there is no 30-day history", () => {
     const scored = applyFairValue(
       [
         wrap({ symbol: "SPYon", normalizedUsd: 671.75, volume24h: 1_400_000 }),
@@ -137,9 +144,54 @@ describe("ticket", () => {
       676,
     );
     const ticket = buildTicket(scored, 676, 100_000, "share");
-    assert.equal(ticket.action, "buy");
+    assert.equal(ticket.action, "wait");
+    assert.match(ticket.headline, /no 30-day range/);
     assert.equal(ticket.buySymbol, "SPYon");
     assert.equal(ticket.avoidSymbol, "SPYX");
+  });
+
+  it("compares the whole liquid book, not the two fattest prints", () => {
+    const scored = applyFairValue(
+      [
+        wrap({
+          symbol: "NVDAB",
+          normalizedUsd: 225.3,
+          volume24h: 27_000_000,
+          issuerName: "bStocks",
+        }),
+        wrap({
+          symbol: "NVDAX",
+          normalizedUsd: 225.75,
+          volume24h: 29_000_000,
+          issuerName: "Backed Assets",
+        }),
+        wrap({
+          symbol: "WNVDAX",
+          normalizedUsd: 226.03,
+          volume24h: 1_200_000,
+          issuerName: "Backed Assets",
+        }),
+      ],
+      225.6,
+    );
+    const pair = liquidSpreadPair(scored, 100_000);
+    assert.equal(pair?.cheap.symbol, "NVDAB");
+    assert.equal(pair?.rich.symbol, "WNVDAX");
+    const ticket = buildTicket(scored, 225.6, 100_000, "share", {
+      history: {
+        leftSymbol: "NVDAB",
+        rightSymbol: "WNVDAX",
+        lastBps: 40,
+        minBps: 5,
+        maxBps: 42,
+        percentile: 95,
+        days: 30,
+        extreme: true,
+      },
+    });
+    assert.equal(ticket.action, "buy");
+    assert.equal(ticket.buySymbol, "NVDAB");
+    assert.equal(ticket.avoidSymbol, "WNVDAX");
   });
 
   it("grades volume into tradability", () => {
@@ -168,6 +220,7 @@ describe("ticket", () => {
       },
     });
     assert.equal(ticket.action, "wait");
+    assert.match(ticket.headline, /typical, not a fade/);
   });
 
   it("keeps buy when the wide gap is a 30-day extreme", () => {
@@ -292,6 +345,18 @@ describe("shareable desk URLs", () => {
     assert.equal(shareAssetKey("gold", DEFAULT_WATCHLIST), "GOLD");
     assert.equal(deskPath("gold", DEFAULT_WATCHLIST), "/desk?asset=GOLD");
     assert.equal(deskPath("spy", DEFAULT_WATCHLIST), "/desk?asset=SPY");
+  });
+});
+
+describe("duplicate tickers", () => {
+  it("appends issuer when two wrappers share a symbol", () => {
+    const book = [
+      wrap({ symbol: "SPY", issuerName: "Robinhood", cryptoId: 1 }),
+      wrap({ symbol: "SPY", issuerName: "Ondo Assets", cryptoId: 2 }),
+      wrap({ symbol: "SPYX", issuerName: "Backed / xStocks", cryptoId: 3 }),
+    ];
+    assert.equal(wrapperLabel(book[0], book), "SPY · Robinhood");
+    assert.equal(wrapperLabel(book[2], book), "SPYX");
   });
 });
 

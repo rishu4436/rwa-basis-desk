@@ -1,4 +1,14 @@
-import type { HistorySummary, Ticket, Tradability, Venue, Wrapper } from "./types";
+import type {
+  HistorySummary,
+  Ticket,
+  TicketTrap,
+  Tradability,
+  Venue,
+  Wrapper,
+} from "./types";
+
+/** Gap that counts as wide. 15 bps = 0.15%. */
+export const WIDE_BPS = 15;
 
 export function tradabilityFromVolume(volume24h: number): Tradability {
   if (volume24h >= 10_000_000) return "A";
@@ -56,8 +66,39 @@ export function applyFairValue(
     });
 }
 
-function isLiquidEnough(w: Wrapper, floor: number): boolean {
+export function isLiquidEnough(w: Wrapper, floor: number): boolean {
   return w.normalizedUsd != null && w.volume24h >= floor;
+}
+
+export function wrapperKey(w: {
+  cryptoId: number | null;
+  symbol: string;
+}): string {
+  return w.cryptoId != null ? `id:${w.cryptoId}` : `sym:${w.symbol}`;
+}
+
+/** Same ticker, different issuer — show the issuer so two SPYs do not look identical. */
+export function wrapperLabel(w: Wrapper, peers: Wrapper[]): string {
+  const clashes = peers.filter((p) => p.symbol === w.symbol).length > 1;
+  if (!clashes) return w.symbol;
+  const issuer = (w.issuerName || w.name).trim();
+  return issuer ? `${w.symbol} · ${issuer}` : w.symbol;
+}
+
+/** Cheapest vs richest among every wrapper above the volume floor. */
+export function liquidSpreadPair(
+  wrappers: Wrapper[],
+  floor: number,
+): { cheap: Wrapper; rich: Wrapper; liquid: Wrapper[] } | null {
+  const liquid = wrappers.filter((w) => isLiquidEnough(w, floor));
+  if (liquid.length < 2) return null;
+  const byPx = [...liquid].sort(
+    (a, b) => (a.normalizedUsd as number) - (b.normalizedUsd as number),
+  );
+  const cheap = byPx[0];
+  const rich = byPx[byPx.length - 1];
+  if (wrapperKey(cheap) === wrapperKey(rich)) return null;
+  return { cheap, rich, liquid };
 }
 
 export function splitBoard(
@@ -124,6 +165,49 @@ function finish(
   };
 }
 
+function emptySides(): Pick<
+  Ticket,
+  "buySymbol" | "avoidSymbol" | "buyCryptoId" | "avoidCryptoId"
+> {
+  return {
+    buySymbol: null,
+    avoidSymbol: null,
+    buyCryptoId: null,
+    avoidCryptoId: null,
+  };
+}
+
+function sides(buy: Wrapper | null, avoid: Wrapper | null) {
+  return {
+    buySymbol: buy?.symbol ?? null,
+    avoidSymbol: avoid?.symbol ?? null,
+    buyCryptoId: buy?.cryptoId ?? null,
+    avoidCryptoId: avoid?.cryptoId ?? null,
+  };
+}
+
+function asTrap(
+  trap: Wrapper,
+  vs: Wrapper | null,
+  fair: number | null,
+): TicketTrap {
+  return {
+    symbol: trap.symbol,
+    cryptoId: trap.cryptoId,
+    issuerName: trap.issuerName,
+    volume24h: trap.volume24h,
+    spreadBps:
+      fair && trap.normalizedUsd != null
+        ? basisBps(trap.normalizedUsd, fair)
+        : null,
+    dollarGap:
+      trap.normalizedUsd != null && vs?.normalizedUsd != null
+        ? vs.normalizedUsd - trap.normalizedUsd
+        : null,
+    vsSymbol: vs?.symbol ?? null,
+  };
+}
+
 export function buildTicket(
   wrappers: Wrapper[],
   fair: number | null,
@@ -132,21 +216,23 @@ export function buildTicket(
   ctx?: TicketContext,
 ): Ticket {
   const priced = wrappers.filter((w) => w.normalizedUsd != null);
+  const label = (w: Wrapper) => wrapperLabel(w, wrappers);
+
   if (priced.length <= 1) {
     const only = priced[0];
     return finish(
       {
         action: "only-one",
         headline: only
-          ? `Only ${only.symbol} is priced — nothing to compare`
+          ? `Only ${label(only)} is priced — nothing to compare`
           : "No priced wrappers yet",
         detail: only
           ? "CMC only returned one live wrapper for this underlying. A basis trade needs two tokens of the same thing."
           : "Add CMC_API_KEY to .env.local, or this underlying has no live quotes yet.",
-        buySymbol: only?.symbol ?? null,
-        avoidSymbol: null,
+        ...sides(only ?? null, null),
         spreadBps: null,
         dollarGap: null,
+        trap: null,
       },
       ctx,
     );
@@ -157,62 +243,62 @@ export function buildTicket(
     (a, b) => (a.normalizedUsd as number) - (b.normalizedUsd as number),
   )[0];
   const mostLiquid = [...priced].sort((a, b) => b.volume24h - a.volume24h)[0];
-
-  const trap =
+  const trapRow =
     cheapestOverall && !isLiquidEnough(cheapestOverall, volumeFloorUsd)
       ? cheapestOverall
       : null;
-  if (trap && mostLiquid && trap.symbol !== mostLiquid.symbol) {
-    const gap =
-      trap.normalizedUsd != null && mostLiquid.normalizedUsd != null
-        ? mostLiquid.normalizedUsd - trap.normalizedUsd
-        : null;
-    return finish(
-      {
-        action: "skip",
-        headline: `${trap.symbol} looks cheaper — you probably cannot exit`,
-        detail: `${trap.symbol} prints a lower price but only trades $${formatUsd(trap.volume24h)} / day. That discount is illiquidity, not a deal. Prefer ${mostLiquid.symbol} ($${formatUsd(mostLiquid.volume24h)} / day).`,
-        buySymbol: mostLiquid.symbol,
-        avoidSymbol: trap.symbol,
-        spreadBps:
-          fair && trap.normalizedUsd != null
-            ? basisBps(trap.normalizedUsd, fair)
-            : null,
-        dollarGap: gap,
-      },
-      ctx,
-    );
-  }
+  const trap =
+    trapRow && mostLiquid && wrapperKey(trapRow) !== wrapperKey(mostLiquid)
+      ? asTrap(trapRow, mostLiquid, fair)
+      : null;
 
   if (liquid.length < 2) {
+    const only = liquid[0] ?? mostLiquid;
+    const trapLine = trap
+      ? `${label(trapRow!)} looks cheaper at $${formatUsd(trap.volume24h)} / day — that discount is illiquidity, not a deal. `
+      : "";
     return finish(
       {
-        action: "only-one",
-        headline: `${mostLiquid.symbol} is the only wrapper you can actually trade`,
-        detail: `Other listings are missing volume. A basis trade needs two liquid tokens of the same ${unit}.`,
-        buySymbol: mostLiquid.symbol,
-        avoidSymbol: null,
-        spreadBps: null,
-        dollarGap: null,
+        action: trap ? "skip" : "only-one",
+        headline: trap
+          ? `${label(trapRow!)} looks cheaper — you probably cannot exit`
+          : `${label(only)} is the only wrapper you can actually trade`,
+        detail: trap
+          ? `${trapLine}Prefer ${label(only)} ($${formatUsd(only.volume24h)} / day). A basis trade still needs two liquid tokens of the same ${unit}.`
+          : `Other listings are missing volume. A basis trade needs two liquid tokens of the same ${unit}.`,
+        ...sides(only, null),
+        spreadBps: trap?.spreadBps ?? null,
+        dollarGap: trap?.dollarGap ?? null,
+        trap,
       },
       ctx,
     );
   }
 
-  const ranked = [...liquid].sort((a, b) => b.volume24h - a.volume24h);
-  const a = ranked[0];
-  const b = ranked[1];
-  const cheapest =
-    (a.normalizedUsd as number) <= (b.normalizedUsd as number) ? a : b;
-  const richest = cheapest === a ? b : a;
+  const pair = liquidSpreadPair(priced, volumeFloorUsd);
+  if (!pair) {
+    return finish(
+      {
+        action: "wait",
+        headline: "Not enough prices to call a ticket",
+        detail: "Wrappers resolved but at least one is missing a live USD quote.",
+        ...emptySides(),
+        spreadBps: null,
+        dollarGap: null,
+        trap,
+      },
+      ctx,
+    );
+  }
 
+  const { cheap, rich } = pair;
   const spreadBpsVal =
-    cheapest.normalizedUsd && richest.normalizedUsd
-      ? basisBps(richest.normalizedUsd, cheapest.normalizedUsd)
+    cheap.normalizedUsd && rich.normalizedUsd
+      ? basisBps(rich.normalizedUsd, cheap.normalizedUsd)
       : null;
   const dollarGap =
-    cheapest.normalizedUsd != null && richest.normalizedUsd != null
-      ? richest.normalizedUsd - cheapest.normalizedUsd
+    cheap.normalizedUsd != null && rich.normalizedUsd != null
+      ? rich.normalizedUsd - cheap.normalizedUsd
       : null;
 
   if (spreadBpsVal == null || dollarGap == null) {
@@ -221,31 +307,50 @@ export function buildTicket(
         action: "wait",
         headline: "Not enough prices to call a ticket",
         detail: "Wrappers resolved but at least one is missing a live USD quote.",
-        buySymbol: null,
-        avoidSymbol: null,
+        ...sides(cheap, rich),
         spreadBps: null,
         dollarGap: null,
+        trap,
       },
       ctx,
     );
   }
 
-  const wide = spreadBpsVal >= 15;
+  const wide = spreadBpsVal >= WIDE_BPS;
   const extreme = Boolean(ctx?.history?.extreme);
-  if (!wide || (ctx?.history && !extreme)) {
-    const why =
-      ctx?.history && wide && !extreme
-        ? `The ${spreadBpsVal.toFixed(1)} bps gap is inside the 30-day range — not a fade.`
-        : `${cheapest.symbol} and ${richest.symbol} are inside a few dollars of each other. Paying extra for a brand name is optional, not a mistake.`;
+  const cheapName = label(cheap);
+  const richName = label(rich);
+
+  if (!wide) {
     return finish(
       {
         action: "wait",
-        headline: `No trade — wrappers are within ${spreadBpsVal.toFixed(1)} bps`,
-        detail: why,
-        buySymbol: cheapest.symbol,
-        avoidSymbol: richest.symbol,
+        headline: `No trade — ${cheapName} and ${richName} are ${spreadBpsVal.toFixed(1)} bps apart`,
+        detail: `${cheapName} and ${richName} are inside a few dollars of each other across the liquid book. Paying extra for a brand name is optional, not a mistake.`,
+        ...sides(cheap, rich),
         spreadBps: spreadBpsVal,
         dollarGap,
+        trap,
+      },
+      ctx,
+    );
+  }
+
+  if (!extreme) {
+    const why = ctx?.history
+      ? `The ${spreadBpsVal.toFixed(1)} bps gap is inside the 30-day range — not a fade.`
+      : `The liquid book is ${spreadBpsVal.toFixed(1)} bps wide but there is no 30-day history yet, so this is not a fade.`;
+    return finish(
+      {
+        action: "wait",
+        headline: ctx?.history
+          ? `No trade — ${spreadBpsVal.toFixed(1)} bps is typical, not a fade`
+          : `No trade — ${spreadBpsVal.toFixed(1)} bps, no 30-day range yet`,
+        detail: why,
+        ...sides(cheap, rich),
+        spreadBps: spreadBpsVal,
+        dollarGap,
+        trap,
       },
       ctx,
     );
@@ -254,12 +359,12 @@ export function buildTicket(
   return finish(
     {
       action: "buy",
-      headline: `Buy ${cheapest.symbol}, skip ${richest.symbol}`,
-      detail: `Same ${unit}. ${richest.symbol} costs $${dollarGap.toFixed(2)} more (${spreadBpsVal.toFixed(1)} bps) than ${cheapest.symbol}${ctx?.history?.extreme ? " — a 30-day wide" : ""}. Cap size around $${formatUsd(Math.min(cheapest.capacityUsd, richest.capacityUsd))} (1% of 24h volume).`,
-      buySymbol: cheapest.symbol,
-      avoidSymbol: richest.symbol,
+      headline: `Buy ${cheapName}, skip ${richName}`,
+      detail: `Same ${unit}. ${richName} costs $${dollarGap.toFixed(2)} more (${spreadBpsVal.toFixed(1)} bps) than ${cheapName} — a 30-day wide. Cap size around $${formatUsd(Math.min(cheap.capacityUsd, rich.capacityUsd))} (1% of 24h volume).`,
+      ...sides(cheap, rich),
       spreadBps: spreadBpsVal,
       dollarGap,
+      trap,
     },
     ctx,
   );

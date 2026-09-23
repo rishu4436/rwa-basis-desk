@@ -83,6 +83,31 @@ export default function Landing() {
         </section>
 
         <section className="mx-auto max-w-5xl px-4 pb-16 sm:px-6">
+          <h2 className="text-xl font-semibold text-white">The desk</h2>
+          <p className="mt-2 max-w-xl text-sm text-white/45">
+            Trap warning, liquid-book ticket, venues, and the 30-day gap — Gold
+            on the left, SPY on the right.
+          </p>
+          <div className="mt-6 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#11141a]">
+            <img
+              src="/desk-desktop.png"
+              alt="Basis Desk showing the Gold ticket, wrapper board, and venues on desktop"
+              className="hidden w-full sm:block"
+            />
+            <img
+              src="/desk-mobile.png"
+              alt="Basis Desk Gold ticket on a phone"
+              className="w-full sm:hidden"
+            />
+          </div>
+          <img
+            src="/desk-spy.png"
+            alt="Basis Desk SPY wrapper comparison"
+            className="mt-4 hidden w-full rounded-2xl border border-white/[0.08] sm:block"
+          />
+        </section>
+
+        <section className="mx-auto max-w-5xl px-4 pb-16 sm:px-6">
           <h2 className="text-xl font-semibold text-white">How it works</h2>
           <ol className="mt-6 grid gap-4 sm:grid-cols-3">
             {[

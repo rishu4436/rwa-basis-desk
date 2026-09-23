@@ -90,14 +90,28 @@ export type HistorySummary = {
   extreme: boolean;
 };
 
+export type TicketTrap = {
+  symbol: string;
+  cryptoId: number | null;
+  issuerName: string;
+  volume24h: number;
+  spreadBps: number | null;
+  dollarGap: number | null;
+  vsSymbol: string | null;
+};
+
 export type Ticket = {
   action: TicketAction;
   headline: string;
   detail: string;
   buySymbol: string | null;
   avoidSymbol: string | null;
+  buyCryptoId: number | null;
+  avoidCryptoId: number | null;
   spreadBps: number | null;
   dollarGap: number | null;
+  /** Illiquid cheap name — a warning, not the liquid-book call. */
+  trap: TicketTrap | null;
   venues: Venue[];
   history: HistorySummary | null;
 };
@@ -163,6 +177,7 @@ export type BoardRow = {
   headline: string;
   buySymbol: string | null;
   avoidSymbol: string | null;
+  trapSymbol: string | null;
   spreadBps: number | null;
   dollarGap: number | null;
   fairValueUsd: number | null;

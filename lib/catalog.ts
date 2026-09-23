@@ -1,4 +1,4 @@
-import { asArray, cmcGet, num } from "./cmc";
+import { asArray, CmcError, cmcGet, num } from "./cmc";
 import { clusterFromAsset, getCluster } from "./clusters";
 import { TREASURY_SYMBOLS } from "./rwa-types";
 import type { CatalogHit, ClusterDef } from "./types";
@@ -156,6 +156,26 @@ export async function searchCatalog(
   });
 }
 
+export class UnknownAssetError extends Error {
+  constructor(readonly query: string) {
+    super(
+      `No tokenized wrapper found for "${query}". Search a tradfi ticker like AAPL.`,
+    );
+    this.name = "UnknownAssetError";
+  }
+}
+
+function isBadTicker(err: unknown): boolean {
+  if (!(err instanceof CmcError)) return false;
+  const code = err.cmcCode;
+  return (
+    code === 4001 ||
+    code === "4001" ||
+    err.status === 400 ||
+    err.status === 404
+  );
+}
+
 export async function clusterForQuery(query: string): Promise<ClusterDef> {
   const known = getCluster(query);
   if (known) return known;
@@ -163,35 +183,44 @@ export async function clusterForQuery(query: string): Promise<ClusterDef> {
   if (query.startsWith("rwa-")) {
     const rwaId = Number(query.slice(4));
     if (Number.isFinite(rwaId)) {
-      const quoted = await cmcGet("/v5/real-world-assets/quotes/latest", {
-        rwa_id: rwaId,
-        convert: "USD",
-      });
-      const asset = rwaAssets(quoted.data)[0];
-      if (asset) {
-        return clusterFromAsset({
-          rwaId,
-          symbol: String(asset.symbol ?? ""),
-          name: String(asset.name ?? ""),
-          assetType: String(asset.asset_type ?? "stock"),
+      try {
+        const quoted = await cmcGet("/v5/real-world-assets/quotes/latest", {
+          rwa_id: rwaId,
+          convert: "USD",
         });
+        const asset = rwaAssets(quoted.data)[0];
+        if (asset) {
+          return clusterFromAsset({
+            rwaId,
+            symbol: String(asset.symbol ?? ""),
+            name: String(asset.name ?? ""),
+            assetType: String(asset.asset_type ?? "stock"),
+          });
+        }
+      } catch (err) {
+        if (isBadTicker(err)) throw new UnknownAssetError(query);
+        throw err;
       }
+      throw new UnknownAssetError(query);
     }
   }
 
   const ticker = query.toUpperCase();
-  const mapped = await cmcGet("/v5/real-world-assets/map", { symbol: ticker });
-  const asset = rwaAssets(mapped.data)[0];
-  if (asset) {
-    return clusterFromAsset({
-      rwaId: num(asset.rwa_id) ?? 0,
-      symbol: String(asset.symbol ?? ticker),
-      name: String(asset.name ?? ticker),
-      assetType: String(asset.asset_type ?? "stock"),
-    });
+  try {
+    const mapped = await cmcGet("/v5/real-world-assets/map", { symbol: ticker });
+    const asset = rwaAssets(mapped.data)[0];
+    if (asset) {
+      return clusterFromAsset({
+        rwaId: num(asset.rwa_id) ?? 0,
+        symbol: String(asset.symbol ?? ticker),
+        name: String(asset.name ?? ticker),
+        assetType: String(asset.asset_type ?? "stock"),
+      });
+    }
+  } catch (err) {
+    if (isBadTicker(err)) throw new UnknownAssetError(query);
+    throw err;
   }
 
-  const fallback = getCluster("gold");
-  if (!fallback) throw new Error("No cluster");
-  return fallback;
+  throw new UnknownAssetError(query);
 }
