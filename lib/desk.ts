@@ -6,15 +6,19 @@ import {
   volumeWeightedFairValue,
 } from "./basis";
 import { clusterForQuery } from "./catalog";
-import { ouncesPerToken } from "./clusters";
+import { getCluster, ouncesPerToken } from "./clusters";
 import { asArray, cmcGet, cmcGetLive, hasApiKey, num, usdQuote } from "./cmc";
+import { goldFixture } from "./fixture";
 import { fetchSpreadHistory } from "./history";
+import { loadIssuer, parseTradfiMarkets } from "./issuer";
 import { loadUnderlying } from "./underlying";
 import { pairCountFor, parseVenues, venuesFor } from "./venues";
 import type {
   BoardRow,
   ClusterDef,
   DeskSnapshot,
+  IssuerProfile,
+  TradfiMarket,
   UnderlyingInfo,
   Venue,
   Wrapper,
@@ -49,11 +53,21 @@ function rwaAssetsFrom(data: unknown): RwaAsset[] {
   );
 }
 
+function cmcStatusTimestamp(raw: unknown): string | null {
+  const status = (raw as { status?: { timestamp?: unknown } } | null)?.status;
+  const ts = status?.timestamp;
+  return typeof ts === "string" && ts ? ts : null;
+}
+
 export async function loadDesk(
   clusterId: string,
   opts?: { lite?: boolean },
 ): Promise<DeskSnapshot> {
   const lite = Boolean(opts?.lite);
+  if (!hasApiKey()) {
+    const known = getCluster(clusterId.trim().toLowerCase());
+    if (known?.id === "gold") return goldFixture();
+  }
   const cluster = await clusterForQuery(clusterId);
   const endpointsUsed: string[] = [];
   const warnings: string[] = [];
@@ -92,6 +106,10 @@ export async function loadDesk(
   let primaryRwaId: number | null = cluster.rwaId ?? null;
   let tokenizedMcap: number | null = null;
   let tokenizedVolume: number | null = null;
+  let averageTokenizedPrice: number | null = null;
+  let tradfiMarkets: TradfiMarket[] = [];
+  let cmcTimestamp: string | null = null;
+  let lastUpdated: string | null = null;
 
   if (hasApiKey()) {
     try {
@@ -119,11 +137,15 @@ export async function loadDesk(
       endpointsUsed.push("GET /v5/real-world-assets/quotes/latest");
       const quoted = rwaAssetsFrom(quoteRes.data);
       rwaQuoteCount = quoted.length;
+      cmcTimestamp = cmcStatusTimestamp(quoteRes.raw) ?? cmcTimestamp;
       if (mappedIds[0] != null) primaryRwaId = mappedIds[0];
       const head = quoted[0];
       if (head) {
         tokenizedMcap = num(head.tokenized_market_cap) ?? tokenizedMcap;
         tokenizedVolume = num(head.tokenized_volume_24h) ?? tokenizedVolume;
+        averageTokenizedPrice = num(head.average_tokenized_price);
+        lastUpdated = head.last_updated ? String(head.last_updated) : lastUpdated;
+        tradfiMarkets = parseTradfiMarkets(head.tradfi_markets);
         primaryRwaId = num(head.rwa_id) ?? primaryRwaId;
       }
 
@@ -338,11 +360,37 @@ export async function loadDesk(
     }
   }
 
+  let issuer: IssuerProfile | null = null;
+  if (!lite) {
+    const buy = scored.find((w) =>
+      ticket.buyCryptoId != null
+        ? w.cryptoId === ticket.buyCryptoId
+        : w.symbol === ticket.buySymbol,
+    );
+    const issuerId =
+      buy?.issuerId || scored.find((w) => w.issuerId)?.issuerId || null;
+    if (issuerId) {
+      try {
+        issuer = await cached(`issuer:${issuerId}`, 10 * 60_000, () =>
+          loadIssuer(issuerId),
+        );
+        endpointsUsed.push("GET /v5/real-world-assets/issuers");
+      } catch (err) {
+        warnings.push(
+          `issuers: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
+
   return {
     cluster,
     generatedAt: new Date().toISOString(),
     source,
     fairValueUsd: fair,
+    averageTokenizedPrice,
+    tradfiMarkets,
+    issuer,
     wrappers: scored,
     main,
     dust,
@@ -356,6 +404,8 @@ export async function loadDesk(
       rwaQuoteCount,
       cryptoQuoteCount,
       pairCount,
+      cmcTimestamp,
+      lastUpdated,
     },
   };
 }

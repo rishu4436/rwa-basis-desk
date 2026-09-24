@@ -55,6 +55,23 @@ export type Venue = {
   priceUsd: number | null;
   cryptoId: number | null;
   recommended: boolean;
+  marketScore: number | null;
+  depthUsd: number | null;
+  lastUpdated: string | null;
+};
+
+export type TradfiMarket = {
+  exchange: string;
+  ticker: string;
+  url: string | null;
+};
+
+export type IssuerProfile = {
+  issuerId: string;
+  name: string;
+  website: string | null;
+  numTokens: number;
+  tokens: { symbol: string; name: string; cryptoId: number | null }[];
 };
 
 export type Wrapper = {
@@ -135,8 +152,11 @@ export type UnderlyingInfo = {
 export type DeskSnapshot = {
   cluster: ClusterDef;
   generatedAt: string;
-  source: "live" | "seed-fallback";
+  source: "live" | "seed-fallback" | "fixture";
   fairValueUsd: number | null;
+  averageTokenizedPrice: number | null;
+  tradfiMarkets: TradfiMarket[];
+  issuer: IssuerProfile | null;
   wrappers: Wrapper[];
   main: Wrapper[];
   dust: Wrapper[];
@@ -150,6 +170,8 @@ export type DeskSnapshot = {
     rwaQuoteCount: number;
     cryptoQuoteCount: number;
     pairCount: number;
+    cmcTimestamp: string | null;
+    lastUpdated: string | null;
   };
 };
 

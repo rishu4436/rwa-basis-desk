@@ -1,4 +1,4 @@
-import type { WatchItem } from "./types";
+import type { DeskSnapshot, TicketAction, WatchItem } from "./types";
 
 const KEY = "basis-desk-watchlist-v1";
 const ACTIVE = "basis-desk-active-v1";
@@ -73,4 +73,51 @@ export function shareAssetKey(clusterId: string, list: WatchItem[]): string {
 
 export function deskPath(clusterId: string, list: WatchItem[]): string {
   return `/desk?asset=${encodeURIComponent(shareAssetKey(clusterId, list))}`;
+}
+
+export type FrozenShare = {
+  asset: string;
+  at: string;
+  call: TicketAction;
+  buy: string | null;
+  avoid: string | null;
+  bps: number | null;
+  fv: number | null;
+  trap: string | null;
+};
+
+const CALLS = new Set<TicketAction>(["buy", "skip", "wait", "only-one"]);
+
+export function frozenDeskPath(desk: DeskSnapshot, list: WatchItem[]): string {
+  const p = new URLSearchParams();
+  p.set("asset", shareAssetKey(desk.cluster.id, list));
+  p.set("at", desk.generatedAt.replace(/\.\d{3}Z$/, "Z"));
+  p.set("call", desk.ticket.action);
+  if (desk.ticket.buySymbol) p.set("buy", desk.ticket.buySymbol);
+  if (desk.ticket.avoidSymbol) p.set("avoid", desk.ticket.avoidSymbol);
+  if (desk.ticket.spreadBps != null) p.set("bps", desk.ticket.spreadBps.toFixed(1));
+  if (desk.fairValueUsd != null) p.set("fv", desk.fairValueUsd.toFixed(2));
+  if (desk.ticket.trap?.symbol) p.set("trap", desk.ticket.trap.symbol);
+  return `/desk?${p.toString()}`;
+}
+
+export function parseFrozenShare(
+  search: URLSearchParams | string,
+): FrozenShare | null {
+  const p = typeof search === "string" ? new URLSearchParams(search) : search;
+  const at = p.get("at");
+  const call = p.get("call") as TicketAction | null;
+  if (!at || !call || !CALLS.has(call)) return null;
+  const bps = p.get("bps");
+  const fv = p.get("fv");
+  return {
+    asset: p.get("asset") || "GOLD",
+    at,
+    call,
+    buy: p.get("buy"),
+    avoid: p.get("avoid"),
+    bps: bps != null && Number.isFinite(Number(bps)) ? Number(bps) : null,
+    fv: fv != null && Number.isFinite(Number(fv)) ? Number(fv) : null,
+    trap: p.get("trap"),
+  };
 }

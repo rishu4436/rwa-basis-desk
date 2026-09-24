@@ -12,32 +12,44 @@ import {
   type DisplayUnit,
 } from "@/lib/display";
 import { cmcCurrencyUrl, edgarCompanyUrl } from "@/lib/links";
-import {
-  DEFAULT_WATCHLIST,
-  deskPath,
-  loadActiveId,
-  loadWatchlist,
-  removeWatch,
-  resolveAssetParam,
-  saveActiveId,
-  saveWatchlist,
-  upsertWatch,
-} from "@/lib/watchlist";
 import type {
   BoardRow,
   CatalogHit,
   DeskSnapshot,
+  IssuerProfile,
   SpreadPoint,
   SpreadSeries,
   TicketAction,
+  TradfiMarket,
   UnderlyingInfo,
   Venue,
   WatchItem,
   Wrapper,
 } from "@/lib/types";
+import {
+  DEFAULT_WATCHLIST,
+  deskPath,
+  frozenDeskPath,
+  loadActiveId,
+  loadWatchlist,
+  parseFrozenShare,
+  removeWatch,
+  resolveAssetParam,
+  saveActiveId,
+  saveWatchlist,
+  upsertWatch,
+  type FrozenShare,
+} from "@/lib/watchlist";
 
 const UNIT_KEY = "basis-desk-unit-v1";
 const SIZE_KEY = "basis-desk-notional-v1";
+
+function formatClock(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.toISOString().slice(0, 19).replace("T", " ")} UTC`;
+}
 
 const ACTION: Record<
   TicketAction,
@@ -80,6 +92,7 @@ export default function Page() {
   const [board, setBoard] = useState<BoardRow[]>([]);
   const [boardLoading, setBoardLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [frozen, setFrozen] = useState<FrozenShare | null>(null);
   const copyTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -100,6 +113,7 @@ export default function Page() {
     }
     const savedSize = Number(localStorage.getItem(SIZE_KEY));
     if (Number.isFinite(savedSize) && savedSize > 0) setNotional(savedSize);
+    setFrozen(parseFrozenShare(new URLSearchParams(window.location.search)));
     setHydrated(true);
   }, []);
 
@@ -111,8 +125,12 @@ export default function Page() {
     const existing = resolveAssetParam(
       new URLSearchParams(window.location.search).get("asset"),
     );
-    if (existing && existing.toLowerCase() === clusterId.toLowerCase()) return;
+    if (existing && existing.toLowerCase() === clusterId.toLowerCase()) {
+      setFrozen(parseFrozenShare(new URLSearchParams(window.location.search)));
+      return;
+    }
     window.history.replaceState(null, "", next);
+    setFrozen(parseFrozenShare(new URLSearchParams(window.location.search)));
   }, [clusterId, hydrated, watchlist]);
 
   useEffect(() => {
@@ -157,9 +175,12 @@ export default function Page() {
   }
 
   async function shareDesk() {
-    const path = deskPath(clusterId, watchlist);
+    const path = desk
+      ? frozenDeskPath(desk, watchlist)
+      : deskPath(clusterId, watchlist);
     const url = `${window.location.origin}${path}`;
     window.history.replaceState(null, "", path);
+    setFrozen(parseFrozenShare(path.split("?")[1] || ""));
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
@@ -345,6 +366,23 @@ export default function Page() {
               {desk.warnings[0] ?? "Waiting on a live CoinMarketCap key."}
             </div>
           )}
+          {desk?.source === "fixture" && (
+            <div className="mb-4 rounded-xl border border-gold-400/25 bg-gold-400/10 px-4 py-3 text-sm text-gold-400">
+              Fixture desk — canned Gold so the ticket is visible without a CMC
+              key. Add CMC_API_KEY for live quotes.
+            </div>
+          )}
+          {frozen && (
+            <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/70">
+              Snapshot {formatClock(frozen.at)} · {frozen.call}
+              {frozen.buy ? ` · trade ${frozen.buy}` : ""}
+              {frozen.avoid ? ` / skip ${frozen.avoid}` : ""}
+              {frozen.bps != null ? ` · ${frozen.bps.toFixed(1)} bps` : ""}
+              {frozen.fv != null ? ` · fair $${frozen.fv.toFixed(2)}` : ""}
+              {frozen.trap ? ` · trap ${frozen.trap}` : ""}. Live desk below may
+              have moved.
+            </div>
+          )}
 
           {loading && !desk ? (
             <SkeletonDash />
@@ -442,6 +480,8 @@ export default function Page() {
                     venues={venues}
                   />
                   <UnderlyingCard info={desk.underlying} />
+                  <IssuerCard issuer={desk.issuer} />
+                  <TradfiCard markets={desk.tradfiMarkets} />
                   <GuideCard unit={unit} assetUnit={desk.cluster.unit} />
                   <EvidenceCard desk={desk} />
                 </aside>
@@ -936,7 +976,10 @@ function KpiRow({
         desk.fairValueUsd != null
           ? `$${desk.fairValueUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
           : "—",
-      hint: `per ${desk.cluster.unit}`,
+      hint:
+        desk.averageTokenizedPrice != null
+          ? `per ${desk.cluster.unit} · CMC avg $${desk.averageTokenizedPrice.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
+          : `per ${desk.cluster.unit}`,
     },
     {
       label: "Liquid gap",
@@ -1448,6 +1491,17 @@ function VenueCard({
                   ${formatUsd(v.volume24h)}
                 </span>
               </div>
+              {(v.marketScore != null || v.depthUsd != null || v.lastUpdated) && (
+                <p className="mt-0.5 text-[10px] text-white/30">
+                  {v.marketScore != null ? `score ${v.marketScore.toFixed(1)}` : ""}
+                  {v.depthUsd != null
+                    ? `${v.marketScore != null ? " · " : ""}±2% $${formatUsd(v.depthUsd)}`
+                    : ""}
+                  {v.lastUpdated
+                    ? `${v.marketScore != null || v.depthUsd != null ? " · " : ""}${formatClock(v.lastUpdated)}`
+                    : ""}
+                </p>
+              )}
               <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/[0.06]">
                 <div
                   className={`h-full rounded-full ${v.recommended ? "bg-gold-400" : "bg-white/25"}`}
@@ -1575,6 +1629,65 @@ function GuideCard({ unit, assetUnit }: { unit: DisplayUnit; assetUnit: string }
   );
 }
 
+function IssuerCard({ issuer }: { issuer: IssuerProfile | null }) {
+  if (!issuer) return null;
+  return (
+    <section className="card p-5">
+      <h2 className="text-sm font-medium text-white">Issuer</h2>
+      <p className="mt-1 text-sm text-white/80">{issuer.name}</p>
+      <p className="mt-1 font-mono text-[11px] text-white/40">
+        {issuer.numTokens} token{issuer.numTokens === 1 ? "" : "s"} on CMC
+      </p>
+      {issuer.tokens.length > 0 && (
+        <p className="mt-2 text-xs leading-5 text-white/55">
+          {issuer.tokens.map((t) => t.symbol).join(" · ")}
+        </p>
+      )}
+      {issuer.website && (
+        <a
+          href={issuer.website}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 inline-block text-[11px] text-gold-400 hover:underline"
+        >
+          {issuer.website.replace(/^https?:\/\//, "")}
+        </a>
+      )}
+    </section>
+  );
+}
+
+function TradfiCard({ markets }: { markets: TradfiMarket[] }) {
+  if (!markets.length) return null;
+  return (
+    <section className="card p-5">
+      <h2 className="text-sm font-medium text-white">TradFi print</h2>
+      <p className="mt-1 text-xs text-white/40">
+        CMC tradfi markets — not a NAV. Shown only when the API fills it.
+      </p>
+      <ul className="mt-3 space-y-2 text-sm">
+        {markets.map((m) => {
+          const label = `${m.exchange}${m.ticker ? ` ${m.ticker}` : ""}`;
+          const inner = (
+            <span className="text-white/80 hover:text-gold-400">{label}</span>
+          );
+          return (
+            <li key={`${m.exchange}-${m.ticker}-${m.url ?? ""}`}>
+              {m.url ? (
+                <a href={m.url} target="_blank" rel="noreferrer">
+                  {inner}
+                </a>
+              ) : (
+                inner
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function EvidenceCard({ desk }: { desk: DeskSnapshot }) {
   const endpoints = useMemo(
     () => [...new Set(desk.endpointsUsed)],
@@ -1587,6 +1700,20 @@ function EvidenceCard({ desk }: { desk: DeskSnapshot }) {
         map {desk.evidence.rwaMapCount} · quotes {desk.evidence.rwaQuoteCount} · crypto{" "}
         {desk.evidence.cryptoQuoteCount} · pairs {desk.evidence.pairCount}
       </p>
+      <dl className="mt-3 space-y-1 font-mono text-[11px] text-white/40">
+        <div className="flex justify-between gap-3">
+          <dt>CMC status</dt>
+          <dd>{formatClock(desk.evidence.cmcTimestamp)}</dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt>quotes last_updated</dt>
+          <dd>{formatClock(desk.evidence.lastUpdated)}</dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt>desk generated</dt>
+          <dd>{formatClock(desk.generatedAt)}</dd>
+        </div>
+      </dl>
       <ul className="mt-3 space-y-1 font-mono text-[11px] text-white/40">
         {endpoints.map((e) => (
           <li key={e}>{e.replace("GET ", "")}</li>

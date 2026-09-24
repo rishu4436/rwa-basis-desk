@@ -10,7 +10,9 @@ import {
   wrapperLabel,
 } from "./basis";
 import { summarizeHistory } from "./history";
-import { parseVenues, venuesFor } from "./venues";
+import { parseVenues, pickPrint, venuesFor } from "./venues";
+import { goldFixture } from "./fixture";
+import { parseIssuer, parseTradfiMarkets } from "./issuer";
 import { ouncesPerToken } from "./clusters";
 import {
   bpsToPct,
@@ -23,6 +25,8 @@ import type { Wrapper } from "./types";
 import {
   DEFAULT_WATCHLIST,
   deskPath,
+  frozenDeskPath,
+  parseFrozenShare,
   resolveAssetParam,
   shareAssetKey,
 } from "./watchlist";
@@ -328,6 +332,29 @@ describe("venues", () => {
     const top = venuesFor(parsed, 5176);
     assert.equal(top.find((v) => v.recommended)?.exchange, "Binance");
   });
+
+  it("uses market_score when the pair payload has it", () => {
+    const parsed = parseVenues([
+      {
+        category: "spot",
+        market_score: 2,
+        exchange: { name: "Deepcoin", slug: "deepcoin" },
+        market_pair: "XAUt/USDT",
+        market_pair_base: { crypto_id: 5176 },
+        quotes: [{ symbol: "USD", volume_24h: 30_000_000, price: 4360 }],
+      },
+      {
+        category: "spot",
+        market_score: 9,
+        exchange: { name: "Binance", slug: "binance" },
+        market_pair: "XAUt/USDT",
+        market_pair_base: { crypto_id: 5176 },
+        quotes: [{ symbol: "USD", volume_24h: 5_000_000, price: 4361 }],
+      },
+    ]);
+    assert.equal(pickPrint(parsed).exchange, "Binance");
+    assert.equal(parsed[0].marketScore, 2);
+  });
 });
 
 describe("shareable desk URLs", () => {
@@ -345,6 +372,59 @@ describe("shareable desk URLs", () => {
     assert.equal(shareAssetKey("gold", DEFAULT_WATCHLIST), "GOLD");
     assert.equal(deskPath("gold", DEFAULT_WATCHLIST), "/desk?asset=GOLD");
     assert.equal(deskPath("spy", DEFAULT_WATCHLIST), "/desk?asset=SPY");
+  });
+
+  it("freezes the ticket into the share URL", () => {
+    const desk = goldFixture();
+    const path = frozenDeskPath(desk, DEFAULT_WATCHLIST);
+    assert.match(path, /asset=GOLD/);
+    assert.match(path, /call=/);
+    assert.match(path, /at=/);
+    const snap = parseFrozenShare(path.split("?")[1] || "");
+    assert.ok(snap);
+    assert.equal(snap.call, desk.ticket.action);
+    assert.equal(snap.buy, desk.ticket.buySymbol);
+  });
+});
+
+describe("issuer and tradfi parsers", () => {
+  it("ignores empty tradfi_markets and reads a filled print", () => {
+    assert.deepEqual(parseTradfiMarkets([]), []);
+    const rows = parseTradfiMarkets([
+      {
+        exchange: { slug: "binance", name: "Binance" },
+        ticker: "NVDA",
+        market_url: "https://www.binance.com/en/stocks/EQ_NVDA",
+      },
+    ]);
+    assert.equal(rows[0].exchange, "Binance");
+    assert.equal(rows[0].ticker, "NVDA");
+  });
+
+  it("reads a single-issuer payload", () => {
+    const issuer = parseIssuer(
+      {
+        name: "Paxos",
+        website: "https://www.paxos.com/",
+        issuer_id: "abc",
+        num_tokens: 1,
+        tokens: [{ name: "PAX Gold", symbol: "PAXG", crypto_id: 4705 }],
+      },
+      "abc",
+    );
+    assert.ok(issuer);
+    assert.equal(issuer.name, "Paxos");
+    assert.equal(issuer.tokens[0].symbol, "PAXG");
+  });
+});
+
+describe("fixture desk", () => {
+  it("returns a readable Gold ticket without a CMC key", () => {
+    const desk = goldFixture();
+    assert.equal(desk.source, "fixture");
+    assert.equal(desk.cluster.id, "gold");
+    assert.ok(desk.ticket.headline.length > 0);
+    assert.ok(desk.evidence.cmcTimestamp);
   });
 });
 

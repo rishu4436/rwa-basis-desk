@@ -34,6 +34,17 @@ export function parseVenues(pairs: unknown[]): Venue[] {
       priceUsd: num(usd.price),
       cryptoId: num(base.crypto_id),
       recommended: false,
+      marketScore: num(p.market_score ?? p.marketScore),
+      depthUsd: num(
+        p.depth_negative_two ??
+          p.depth_usd_negative_2 ??
+          p.effective_liquidity,
+      ),
+      lastUpdated: usd.last_updated
+        ? String(usd.last_updated)
+        : p.last_updated
+          ? String(p.last_updated)
+          : null,
     });
   }
   return out;
@@ -52,6 +63,20 @@ function isMajor(v: Venue): boolean {
 export function pickPrint(rows: Venue[]): Venue {
   const ranked = [...rows].sort((a, b) => b.volume24h - a.volume24h);
   const top = ranked[0];
+  const scored = ranked.filter(
+    (v) => v.marketScore != null && v.volume24h >= 100_000,
+  );
+  if (scored.length) {
+    scored.sort(
+      (a, b) =>
+        (b.marketScore as number) - (a.marketScore as number) ||
+        b.volume24h - a.volume24h,
+    );
+    const best = scored[0];
+    const floor = (best.marketScore as number) * 0.9;
+    const major = scored.find((v) => isMajor(v) && (v.marketScore as number) >= floor);
+    return major ?? best;
+  }
   const floor = Math.max(100_000, top.volume24h * 0.45);
   const major =
     ranked.find((v) => isMajor(v) && v.volume24h >= floor) ??

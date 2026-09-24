@@ -31,6 +31,10 @@ npm run build
 
 Do not put `CMC_API_KEY` in client code or git.
 
+Without a key, `/desk?asset=GOLD` still loads a **fixture** Gold ticket so judges can read the product. Other tickers need the Startup key.
+
+Share copies a frozen print (`at`, `call`, `buy`, `bps`, `fv`) in the URL so a tweet can reopen the same ticket, not only the live refetch.
+
 ## Deploy (Vercel)
 
 ```bash
@@ -110,6 +114,7 @@ Gram-denominated gold (CGO and similar) is scaled to **USD per troy ounce**.
 | `GET /v5/real-world-assets/quotes/latest` | Asset quotes + `tokens[]` with issuer |
 | `GET /v5/real-world-assets/market-pairs/list` | How many venues you can actually exit on |
 | `GET /v5/real-world-assets/info` | Underlying card: CIK → EDGAR, industry, about |
+| `GET /v5/real-world-assets/issuers` | Issuer card: site, token roster, `num_tokens` |
 | `GET /v3/cryptocurrency/quotes/latest` | Per-wrapper price, volume, market cap, slug |
 | `GET /v2/cryptocurrency/ohlcv/historical` | Wrapper spread history (RWA has no timeseries yet) |
 
