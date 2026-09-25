@@ -65,3 +65,29 @@ export function unitHint(unit: DisplayUnit, assetUnit: string): string {
 }
 
 export const NOTIONAL_PRESETS = [1_000, 10_000, 100_000] as const;
+
+/** Always en-US so 100000 is $100,000, not a locale grouping like 1,00,000. */
+export function formatNotional(n: number): string {
+  return `$${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+export function formatSizeLabel(n: number): string {
+  if (n >= 1000 && n % 1000 === 0) return `$${n / 1000}k`;
+  return formatNotional(n);
+}
+
+export function nextNotional(current: number): number {
+  const idx = NOTIONAL_PRESETS.findIndex((n) => n === current);
+  return NOTIONAL_PRESETS[(idx + 1) % NOTIONAL_PRESETS.length] ?? NOTIONAL_PRESETS[0];
+}
+
+/** Dollar impact of a size. Keeps cents below $100 so a 1 bp gap does not render as $0. */
+export function formatPlainUsd(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  const digits = abs >= 100 ? 0 : 2;
+  return `$${abs.toLocaleString("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`;
+}

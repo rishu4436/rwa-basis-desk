@@ -2,7 +2,10 @@ import { formatUsd } from "@/lib/basis";
 import {
   extraOnNotional,
   formatDelta,
+  formatNotional,
+  formatPlainUsd,
   formatSignedBps,
+  formatSizeLabel,
   NOTIONAL_PRESETS,
   type DisplayUnit,
 } from "@/lib/display";
@@ -121,9 +124,11 @@ export function DecisionHero({
               : `per ${unitName}`}
           </p>
           {extra != null && (
-            <p className="mt-3 text-xs leading-5 text-white/45">
-              On a ${notional.toLocaleString()} buy the richer name costs about{" "}
-              <span className="font-mono text-white/80">${extra.toFixed(0)}</span> more.
+            <p className="mt-3 font-mono text-2xl tracking-tight text-white num">
+              {formatPlainUsd(extra)}
+              <span className="ml-2 text-xs font-sans text-white/45">
+                more on a {formatNotional(notional)} buy
+              </span>
             </p>
           )}
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -138,7 +143,7 @@ export function DecisionHero({
                     : "border-white/10 text-white/40 hover:text-white"
                 }`}
               >
-                ${n >= 1000 ? `${n / 1000}k` : n}
+                {formatSizeLabel(n)}
               </button>
             ))}
           </div>

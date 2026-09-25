@@ -15,6 +15,11 @@ import {
 import {
   extraOnNotional,
   formatDelta,
+  formatNotional,
+  formatPlainUsd,
+  formatSizeLabel,
+  nextNotional,
+  NOTIONAL_PRESETS,
   type DisplayUnit,
 } from "@/lib/display";
 import { cmcCurrencyUrl, edgarCompanyUrl } from "@/lib/links";
@@ -390,6 +395,7 @@ export default function Page() {
                 activeId={clusterId}
                 unit={unit}
                 notional={notional}
+                onNotional={changeNotional}
                 fairFallback={desk.fairValueUsd}
                 onOpen={(id) => {
                   setClusterId(id);
@@ -405,8 +411,8 @@ export default function Page() {
                         Tradeable wrappers
                       </h2>
                       <p className="mt-0.5 text-xs text-white/40">
-                        vs fair in {unit === "usd" ? "dollars" : unit === "pct" ? "percent" : "bps"} · extra on a $
-                        {notional.toLocaleString()} buy
+                        vs fair in {unit === "usd" ? "dollars" : unit === "pct" ? "percent" : "bps"} · extra on a{" "}
+                        {formatNotional(notional)} buy
                       </p>
                     </div>
                   </div>
@@ -417,6 +423,7 @@ export default function Page() {
                     onSelect={setSelected}
                     unit={unit}
                     notional={notional}
+                    onNotional={changeNotional}
                   />
                   {desk.dust?.length > 0 && (
                     <div className="border-t border-white/[0.06]">
@@ -439,6 +446,7 @@ export default function Page() {
                           onSelect={setSelected}
                           unit={unit}
                           notional={notional}
+                          onNotional={changeNotional}
                           muted
                         />
                       )}
@@ -724,9 +732,10 @@ function UnitToggle({
 
 function attentionScore(row: BoardRow): number {
   const gap = Math.abs(row.spreadBps ?? 0);
-  if (row.action === "skip") return 400 + gap;
-  if (row.action === "buy") return 250 + gap;
-  if (row.action === "wait") return 80 + gap;
+  const trap = row.trapSymbol ? 300 : 0;
+  if (row.action === "skip") return 900 + gap;
+  if (row.action === "buy") return 600 + gap;
+  if (row.action === "wait") return trap + gap;
   return gap;
 }
 
@@ -736,6 +745,7 @@ function WatchBoard({
   activeId,
   unit,
   notional,
+  onNotional,
   fairFallback,
   onOpen,
 }: {
@@ -744,24 +754,21 @@ function WatchBoard({
   activeId: string;
   unit: DisplayUnit;
   notional: number;
+  onNotional: (n: number) => void;
   fairFallback: number | null;
   onOpen: (id: string) => void;
 }) {
-  const [sort, setSort] = useState<"attention" | "gap" | "size">("attention");
+  const [sort, setSort] = useState<"attention" | "gap">("attention");
   const ranked = useMemo(() => {
     const copy = [...rows];
     copy.sort((a, b) => {
       if (sort === "gap")
         return Math.abs(b.spreadBps ?? 0) - Math.abs(a.spreadBps ?? 0);
-      if (sort === "size") {
-        const ae = a.spreadBps != null ? Math.abs(extraOnNotional(a.spreadBps, notional)) : 0;
-        const be = b.spreadBps != null ? Math.abs(extraOnNotional(b.spreadBps, notional)) : 0;
-        return be - ae;
-      }
       return attentionScore(b) - attentionScore(a);
     });
     return copy;
-  }, [rows, sort, notional]);
+  }, [rows, sort]);
+  const gapUnit: DisplayUnit = sort === "gap" ? "bps" : unit;
   const maxGap = Math.max(...ranked.map((r) => Math.abs(r.spreadBps ?? 0)), 1);
 
   return (
@@ -778,11 +785,26 @@ function WatchBoard({
             <span className="text-[11px] text-white/35">Updating…</span>
           )}
           <div className="flex rounded-full border border-white/10 p-0.5">
+            {NOTIONAL_PRESETS.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => onNotional(n)}
+                className={`rounded-full px-2.5 py-1 font-mono text-[11px] ${
+                  notional === n
+                    ? "bg-white text-[#0b0d10]"
+                    : "text-white/45 hover:text-white"
+                }`}
+              >
+                {formatSizeLabel(n)}
+              </button>
+            ))}
+          </div>
+          <div className="flex rounded-full border border-white/10 p-0.5">
             {(
               [
                 ["attention", "Attention"],
                 ["gap", "Gap"],
-                ["size", `On $${notional / 1000}k`],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -808,10 +830,25 @@ function WatchBoard({
               <th className="w-12 px-4 py-2.5 font-medium sm:px-5">#</th>
               <th className="px-3 py-2.5 font-medium">Asset</th>
               <th className="px-3 py-2.5 font-medium">Call</th>
-              <th className="px-3 py-2.5 font-medium text-right">Gap</th>
+              <th className="px-3 py-2.5 text-right font-medium">
+                <button
+                  type="button"
+                  onClick={() => setSort("gap")}
+                  className={sort === "gap" ? "text-white" : "hover:text-white"}
+                >
+                  Gap{sort === "gap" ? " · bps" : ""}
+                </button>
+              </th>
               <th className="hidden px-3 py-2.5 font-medium sm:table-cell">Scale</th>
-              <th className="px-3 py-2.5 font-medium text-right">
-                On ${notional >= 1000 ? `${notional / 1000}k` : notional}
+              <th className="px-3 py-2.5 text-right font-medium">
+                <button
+                  type="button"
+                  onClick={() => onNotional(nextNotional(notional))}
+                  className="hover:text-white"
+                  title="Cycle the buy size"
+                >
+                  On {formatSizeLabel(notional)}
+                </button>
               </th>
               <th className="px-3 py-2.5 font-medium">Trade</th>
               <th className="px-4 py-2.5 font-medium sm:px-5">Venue</th>
@@ -871,7 +908,7 @@ function WatchBoard({
                   <td className="px-3 py-3 text-right font-mono num text-white/80">
                     {formatDelta(
                       row.spreadBps,
-                      unit,
+                      gapUnit,
                       row.fairValueUsd ?? fairFallback,
                     )}
                   </td>
@@ -889,8 +926,8 @@ function WatchBoard({
                       />
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-right font-mono num text-white/60">
-                    {extra == null ? "—" : `$${extra.toFixed(0)}`}
+                  <td className="px-3 py-3 text-right font-mono num text-white">
+                    {extra == null ? "—" : formatPlainUsd(extra)}
                   </td>
                   <td className="px-3 py-3 font-mono text-xs text-white/70">
                     {row.buySymbol ?? "—"}
@@ -935,6 +972,7 @@ function WrapperTable({
   onSelect,
   unit,
   notional,
+  onNotional,
   muted = false,
 }: {
   desk: DeskSnapshot;
@@ -943,6 +981,7 @@ function WrapperTable({
   onSelect: (symbol: string) => void;
   unit: DisplayUnit;
   notional: number;
+  onNotional: (n: number) => void;
   muted?: boolean;
 }) {
   return (
@@ -956,8 +995,15 @@ function WrapperTable({
             <th className="px-3 py-2.5 font-medium text-right">
               vs fair ({unit === "usd" ? "$" : unit === "pct" ? "%" : "bps"})
             </th>
-            <th className="px-3 py-2.5 font-medium text-right">
-              On ${notional >= 1000 ? `${notional / 1000}k` : notional}
+            <th className="px-3 py-2.5 text-right font-medium">
+              <button
+                type="button"
+                onClick={() => onNotional(nextNotional(notional))}
+                className="hover:text-white"
+                title="Cycle the buy size"
+              >
+                On {formatSizeLabel(notional)}
+              </button>
             </th>
             <th className="px-3 py-2.5 font-medium text-right">24h vol</th>
             <th className="px-4 py-2.5 font-medium text-right sm:px-5">Grade</th>
@@ -1064,10 +1110,10 @@ function WrapperTable({
                   {extra == null
                     ? "—"
                     : extra > 0
-                      ? `+$${extra.toFixed(0)}`
+                      ? `+${formatPlainUsd(extra)}`
                       : extra < 0
-                        ? `−$${Math.abs(extra).toFixed(0)}`
-                        : "$0"}
+                        ? `−${formatPlainUsd(extra)}`
+                        : "$0.00"}
                 </td>
                 <td className="px-3 py-3 text-right font-mono num text-white/75">
                   ${formatUsd(w.volume24h)}

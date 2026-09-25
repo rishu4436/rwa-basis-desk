@@ -29,6 +29,9 @@ import {
   bpsToUsd,
   extraOnNotional,
   formatDelta,
+  formatNotional,
+  formatPlainUsd,
+  nextNotional,
 } from "./display";
 import { cmcCurrencyUrl, edgarCompanyUrl } from "./links";
 import type { Wrapper } from "./types";
@@ -71,6 +74,11 @@ describe("display units", () => {
     assert.equal(extraOnNotional(50, 10_000), 50);
     assert.equal(formatDelta(-10, "pct", 4000), "−0.10%");
     assert.equal(formatDelta(-10, "usd", 4000), "−$4.00");
+    assert.equal(formatNotional(100_000), "$100,000");
+    assert.equal(formatPlainUsd(1034), "$1,034");
+    assert.equal(formatPlainUsd(0.3), "$0.30");
+    assert.equal(nextNotional(10_000), 100_000);
+    assert.equal(nextNotional(100_000), 1_000);
   });
 });
 
