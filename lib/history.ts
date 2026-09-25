@@ -73,6 +73,28 @@ export function summarizeHistory(
   };
 }
 
+/** Where today's live gap sits in the daily-close series. */
+export function rankAgainstHistory(
+  points: SpreadPoint[],
+  liveBps: number,
+): { percentile: number; days: number; extreme: boolean } | null {
+  const vals = points
+    .map((p) => p.bps)
+    .filter((n): n is number => n != null && Number.isFinite(n));
+  if (vals.length < DESK_POLICY.minHistoryDays || !Number.isFinite(liveBps)) {
+    return null;
+  }
+  const below = vals.filter((v) => v <= liveBps).length;
+  const percentile = (below / vals.length) * 100;
+  return {
+    percentile,
+    days: vals.length,
+    extreme:
+      Math.abs(liveBps) >= DESK_POLICY.wideBasisBps &&
+      (percentile >= DESK_POLICY.extremePercentile || percentile <= 10),
+  };
+}
+
 /** Pull one crypto id out of a single-id or comma-separated OHLCV payload. */
 export function closesForId(
   data: unknown,

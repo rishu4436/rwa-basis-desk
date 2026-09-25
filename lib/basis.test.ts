@@ -10,7 +10,7 @@ import {
   volumeWeightedFairValue,
   wrapperLabel,
 } from "./basis";
-import { closesForId, summarizeHistory } from "./history";
+import { closesForId, rankAgainstHistory, summarizeHistory } from "./history";
 import { CmcError, isPlanGate } from "./cmc";
 import { assetClassFrom, unitFor } from "./clusters";
 import { allowRequest } from "./guard";
@@ -411,6 +411,23 @@ describe("history", () => {
     const s = summarizeHistory(points, "PAXG", "XAUt");
     assert.ok(s);
     assert.equal(s.avgDollarGap, (10 + 30 + 30 + 40 + 50) / 5);
+  });
+
+  it("treats a live gap above every daily close as extreme", () => {
+    const points = Array.from({ length: 20 }, (_, i) => ({
+      date: `2026-09-${String(i + 1).padStart(2, "0")}`,
+      bps: 10 + (i % 3),
+      buyClose: 100,
+      avoidClose: 101,
+    }));
+    const summary = summarizeHistory(points, "NVDAX", "NVDAB");
+    assert.ok(summary);
+    assert.equal(summary.extreme, false);
+    const ranked = rankAgainstHistory(points, 40);
+    assert.ok(ranked);
+    assert.equal(ranked.percentile, 100);
+    assert.equal(ranked.extreme, true);
+    assert.equal(rankAgainstHistory(points, 11)?.extreme, false);
   });
 
   it("reads both crypto ids from one OHLCV payload", () => {

@@ -1,5 +1,6 @@
 import {
   applyFairValue,
+  basisBps,
   buildTicket,
   liquidReference,
   liquidSpreadPair,
@@ -9,7 +10,7 @@ import { clusterForQuery } from "./catalog";
 import { getCluster, ouncesPerToken } from "./clusters";
 import { asArray, cmcGet, cmcGetLive, hasApiKey, isPlanGate, num, usdQuote } from "./cmc";
 import { goldFixture } from "./fixture";
-import { fetchSpreadHistory } from "./history";
+import { fetchSpreadHistory, rankAgainstHistory } from "./history";
 import { loadIssuer, parseTradfiMarkets } from "./issuer";
 import { loadUnderlying } from "./underlying";
 import { demoVenuesFor, pairCountFor, parseVenues, venuesFor } from "./venues";
@@ -360,7 +361,6 @@ export async function loadDesk(
   let spread = null;
   let history = null;
   if (
-    !lite &&
     pair?.cheap.cryptoId &&
     pair?.rich.cryptoId &&
     pair.cheap.cryptoId !== pair.rich.cryptoId
@@ -379,7 +379,19 @@ export async function loadDesk(
         },
       );
       if (hist.endpoint) endpointsUsed.push(hist.endpoint);
-      history = hist.summary;
+      const liveBps =
+        pair.cheap.normalizedUsd != null && pair.rich.normalizedUsd != null
+          ? basisBps(pair.rich.normalizedUsd, pair.cheap.normalizedUsd)
+          : null;
+      const ranked = liveBps == null ? null : rankAgainstHistory(hist.points, liveBps);
+      history =
+        hist.summary && ranked
+          ? {
+              ...hist.summary,
+              percentile: ranked.percentile,
+              extreme: ranked.extreme,
+            }
+          : hist.summary;
       spread = {
         clusterId: cluster.id,
         buySymbol: pair.cheap.symbol,
