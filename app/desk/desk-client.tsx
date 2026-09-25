@@ -74,6 +74,7 @@ export default function Page() {
   const [board, setBoard] = useState<BoardRow[]>([]);
   const [boardLoading, setBoardLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [reload, setReload] = useState(0);
   const [frozen, setFrozen] = useState<FrozenShare | null>(null);
   const copyTimer = useRef<number | null>(null);
 
@@ -232,7 +233,7 @@ export default function Page() {
     return () => {
       cancelled = true;
     };
-  }, [clusterId, hydrated]);
+  }, [clusterId, hydrated, reload]);
 
   const watchIds = watchlist.map((w) => w.id).join(",");
   useEffect(() => {
@@ -257,7 +258,7 @@ export default function Page() {
     return () => {
       cancelled = true;
     };
-  }, [watchIds, hydrated]);
+  }, [watchIds, hydrated, reload]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -318,9 +319,12 @@ export default function Page() {
           }}
           onUnpin={unpin}
           onSearch={() => setCatalogOpen(true)}
-          live={desk?.source === "live"}
+          live={desk?.source === "live" || desk?.source === "partial-live"}
+          mode={desk?.source}
           at={desk?.generatedAt}
+          quoteAt={desk?.evidence.lastUpdated}
           loading={loading}
+          onRefresh={() => setReload((n) => n + 1)}
           unit={unit}
           onUnit={changeUnit}
           copied={copied}
@@ -343,9 +347,15 @@ export default function Page() {
               {error}
             </div>
           )}
-          {desk?.source === "seed-fallback" && (
+          {desk?.source === "fallback" && (
             <div className="mb-4 rounded-xl border border-gold-400/25 bg-gold-400/10 px-4 py-3 text-sm text-gold-400">
               {desk.warnings[0] ?? "Waiting on a live CoinMarketCap key."}
+            </div>
+          )}
+          {(desk?.venueCoverage.status === "plan-gated" ||
+            desk?.venueCoverage.status === "demo") && (
+            <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/70">
+              {desk.venueCoverage.detail}
             </div>
           )}
           {desk?.source === "fixture" && (
@@ -360,7 +370,7 @@ export default function Page() {
               {frozen.buy ? ` · trade ${frozen.buy}` : ""}
               {frozen.avoid ? ` / skip ${frozen.avoid}` : ""}
               {frozen.bps != null ? ` · ${frozen.bps.toFixed(1)} bps` : ""}
-              {frozen.fv != null ? ` · fair $${frozen.fv.toFixed(2)}` : ""}
+              {frozen.fv != null ? ` · reference $${frozen.fv.toFixed(2)}` : ""}
               {frozen.trap ? ` · trap ${frozen.trap}` : ""}. Live desk below may
               have moved.
             </div>
@@ -384,7 +394,7 @@ export default function Page() {
                   <BasisHistory
                     spread={desk.spread}
                     unit={unit}
-                    fairUsd={desk.fairValueUsd}
+                    fairUsd={desk.liquidReferenceUsd}
                   />
                 </div>
               </div>
@@ -396,7 +406,7 @@ export default function Page() {
                 unit={unit}
                 notional={notional}
                 onNotional={changeNotional}
-                fairFallback={desk.fairValueUsd}
+                fairFallback={desk.liquidReferenceUsd}
                 onOpen={(id) => {
                   setClusterId(id);
                   saveActiveId(id);
@@ -411,7 +421,7 @@ export default function Page() {
                         Tradeable wrappers
                       </h2>
                       <p className="mt-0.5 text-xs text-white/40">
-                        vs fair in {unit === "usd" ? "dollars" : unit === "pct" ? "percent" : "bps"} · extra on a{" "}
+                        vs liquid reference in {unit === "usd" ? "dollars" : unit === "pct" ? "percent" : "bps"} · extra on a{" "}
                         {formatNotional(notional)} buy
                       </p>
                     </div>
@@ -462,6 +472,7 @@ export default function Page() {
                         : desk.ticket.buySymbol
                     }
                     venues={venues}
+                    coverage={desk.venueCoverage}
                   />
                   <UnderlyingCard info={desk.underlying} />
                   <IssuerCard issuer={desk.issuer} />
@@ -591,8 +602,11 @@ function Header({
   onUnpin,
   onSearch,
   live,
+  mode,
   at,
+  quoteAt,
   loading,
+  onRefresh,
   unit,
   onUnit,
   copied,
@@ -604,13 +618,28 @@ function Header({
   onUnpin: (id: string) => void;
   onSearch: () => void;
   live: boolean;
+  mode?: DeskSnapshot["source"];
   at?: string;
+  quoteAt?: string | null;
   loading: boolean;
+  onRefresh: () => void;
   unit: DisplayUnit;
   onUnit: (u: DisplayUnit) => void;
   copied: boolean;
   onShare: () => void;
 }) {
+  const status =
+    loading
+      ? "Refreshing…"
+      : mode === "partial-live"
+        ? "Partial live"
+        : mode === "fixture"
+          ? "Fixture"
+          : mode === "fallback"
+            ? "Fallback"
+            : live
+              ? "Live CMC"
+              : "Offline";
   return (
     <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-[#0b0d10]/80 backdrop-blur-md">
       <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
@@ -623,7 +652,7 @@ function Header({
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${live ? "live-dot bg-emerald-400" : "bg-white/25"}`}
                 />
-                {loading ? "Refreshing…" : live ? "Live CMC" : "Offline"}
+                {status}
               </div>
             </div>
           </Link>
@@ -632,12 +661,9 @@ function Header({
           <span
             className={`h-1.5 w-1.5 rounded-full ${live ? "live-dot bg-emerald-400" : "bg-white/25"}`}
           />
-          {loading ? "Refreshing…" : live ? "Live CMC" : "Offline"}
-          {at && (
-            <span className="font-mono">
-              · {new Date(at).toUTCString().replace(" GMT", " UTC")}
-            </span>
-          )}
+          {status}
+          {at && <span className="font-mono">· fetched {formatClock(at)}</span>}
+          {quoteAt && <span className="font-mono">· CMC quote {formatClock(quoteAt)}</span>}
         </div>
 
         <div className="flex min-w-0 items-center gap-2">
@@ -678,6 +704,14 @@ function Header({
               );
             })}
           </div>
+          <button
+            type="button"
+            onClick={onRefresh}
+            title="Reload quotes"
+            className="shrink-0 rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:border-white/25 hover:text-white"
+          >
+            Refresh
+          </button>
           <button
             type="button"
             onClick={onShare}
@@ -865,7 +899,7 @@ function WatchBoard({
                 row.action === "skip"
                   ? "Skip trap"
                   : row.action === "buy"
-                    ? "Buy gap"
+                    ? "Prefer"
                     : row.action === "wait"
                       ? "No trade"
                       : "One wrapper";
@@ -876,7 +910,15 @@ function WatchBoard({
               return (
                 <tr
                   key={row.id}
+                  tabIndex={0}
+                  role="link"
                   onClick={() => onOpen(row.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onOpen(row.id);
+                    }
+                  }}
                   className={`cursor-pointer border-t border-white/[0.04] hover:bg-white/[0.03] ${
                     active ? "bg-white/[0.05]" : ""
                   } ${i === 0 ? "border-l-2 border-l-gold-400" : ""}`}
@@ -909,7 +951,7 @@ function WatchBoard({
                     {formatDelta(
                       row.spreadBps,
                       gapUnit,
-                      row.fairValueUsd ?? fairFallback,
+                      row.liquidReferenceUsd ?? fairFallback,
                     )}
                   </td>
                   <td className="hidden px-3 py-3 sm:table-cell">
@@ -993,7 +1035,7 @@ function WrapperTable({
             <th className="px-3 py-2.5 font-medium">Issuer</th>
             <th className="px-3 py-2.5 font-medium text-right">Price</th>
             <th className="px-3 py-2.5 font-medium text-right">
-              vs fair ({unit === "usd" ? "$" : unit === "pct" ? "%" : "bps"})
+              vs reference ({unit === "usd" ? "$" : unit === "pct" ? "%" : "bps"})
             </th>
             <th className="px-3 py-2.5 text-right font-medium">
               <button
@@ -1033,7 +1075,15 @@ function WrapperTable({
             return (
               <tr
                 key={`${w.cryptoId}-${w.symbol}`}
+                tabIndex={0}
+                role="button"
                 onClick={() => onSelect(wrapperKey(w))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelect(wrapperKey(w));
+                  }
+                }}
                 className={`cursor-pointer border-t border-white/[0.04] transition ${
                   isSel
                     ? "bg-white/[0.05]"
@@ -1054,7 +1104,7 @@ function WrapperTable({
                         title="Best wrapper you can actually trade"
                         className="rounded bg-emerald-500/15 px-1.5 py-px text-[9px] uppercase tracking-wider text-emerald-300"
                       >
-                        trade
+                        prefer
                       </span>
                     )}
                     {isSkip && !isTrap && (
@@ -1094,7 +1144,7 @@ function WrapperTable({
                     cheap ? "text-emerald-300" : rich ? "text-rose-300" : "text-white/55"
                   }`}
                 >
-                  {formatDelta(w.basisBps, unit, desk.fairValueUsd)}
+                  {formatDelta(w.basisBps, unit, desk.liquidReferenceUsd)}
                 </td>
                 <td
                   className={`px-3 py-3 text-right font-mono num ${
@@ -1147,24 +1197,48 @@ function Grade({ grade }: { grade: string }) {
 function VenueCard({
   symbol,
   venues,
+  coverage,
 }: {
   symbol: string | null | undefined;
   venues: Venue[];
+  coverage: DeskSnapshot["venueCoverage"];
 }) {
   const max = Math.max(...venues.map((v) => v.volume24h), 1);
+  const gated = coverage.status === "plan-gated" || coverage.status === "demo";
+  const heading =
+    coverage.status === "demo" ? "Sample venues" : `Where to trade ${symbol ?? ""}`;
   return (
     <section className="card p-5">
-      <h2 className="text-sm font-medium text-white">Where to trade {symbol ?? ""}</h2>
-      <p className="mt-1 text-xs text-white/40">Spot prints. Click a wrapper to retarget.</p>
+      <h2 className="text-sm font-medium text-white">{heading}</h2>
+      <p className="mt-1 text-xs text-white/40">
+        {gated
+          ? "Market pairs are Growth+. Sample rows are labelled and are not a live book."
+          : "Spot prints. Click a wrapper to retarget."}
+      </p>
+      {gated && (
+        <div className="mt-3 rounded-lg border border-gold-400/25 bg-gold-400/10 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-gold-400">
+            Venue coverage
+          </p>
+          <p className="mt-1 text-xs leading-5 text-white/70">{coverage.detail}</p>
+        </div>
+      )}
       {venues.length === 0 ? (
-        <p className="mt-6 text-sm text-white/40">No spot venues on this name.</p>
+        <p className="mt-6 text-sm text-white/40">
+          {gated ? "No sample print for this wrapper." : "No spot venues on this name."}
+        </p>
       ) : (
         <ul className="mt-4 space-y-3">
           {venues.map((v) => (
             <li key={`${v.exchange}-${v.pair}`}>
               <div className="flex items-baseline justify-between gap-2 text-sm">
                 <span className="text-white">
-                  {v.recommended && (
+                  {v.listed === "demo" && (
+                    <span className="mr-2 text-[10px] uppercase tracking-wider text-gold-400">
+                      sample
+                    </span>
+                  )}
+                  {v.recommended && v.listed !== "demo" && (
                     <span className="mr-2 text-[10px] uppercase tracking-wider text-gold-400">
                       print
                     </span>

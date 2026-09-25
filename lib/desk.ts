@@ -1,18 +1,18 @@
 import {
   applyFairValue,
   buildTicket,
+  liquidReference,
   liquidSpreadPair,
   splitBoard,
-  volumeWeightedFairValue,
 } from "./basis";
 import { clusterForQuery } from "./catalog";
 import { getCluster, ouncesPerToken } from "./clusters";
-import { asArray, cmcGet, cmcGetLive, hasApiKey, num, usdQuote } from "./cmc";
+import { asArray, cmcGet, cmcGetLive, hasApiKey, isPlanGate, num, usdQuote } from "./cmc";
 import { goldFixture } from "./fixture";
 import { fetchSpreadHistory } from "./history";
 import { loadIssuer, parseTradfiMarkets } from "./issuer";
 import { loadUnderlying } from "./underlying";
-import { pairCountFor, parseVenues, venuesFor } from "./venues";
+import { demoVenuesFor, pairCountFor, parseVenues, venuesFor } from "./venues";
 import type {
   BoardRow,
   ClusterDef,
@@ -21,6 +21,7 @@ import type {
   TradfiMarket,
   UnderlyingInfo,
   Venue,
+  VenueCoverage,
   Wrapper,
 } from "./types";
 
@@ -71,7 +72,8 @@ export async function loadDesk(
   const cluster = await clusterForQuery(clusterId);
   const endpointsUsed: string[] = [];
   const warnings: string[] = [];
-  let source: DeskSnapshot["source"] = "live";
+  let source: DeskSnapshot["source"] = "fallback";
+  let rwaOk = false;
 
   const wrappers = new Map<string, Wrapper>();
   const push = (w: Wrapper) => {
@@ -110,16 +112,29 @@ export async function loadDesk(
   let tradfiMarkets: TradfiMarket[] = [];
   let cmcTimestamp: string | null = null;
   let lastUpdated: string | null = null;
+  let venueCoverage: VenueCoverage = lite
+    ? {
+        status: "skipped",
+        detail: "The watchlist skips market pairs. Open a name for venue coverage.",
+      }
+    : {
+        status: "unavailable",
+        detail: "Venue coverage was not loaded.",
+      };
 
   if (hasApiKey()) {
     try {
-      const symbolParam = cluster.rwaSymbols.join(",");
-      const mapRes = await cached(`map:${symbolParam}`, 5 * 60_000, () =>
-        cmcGet("/v5/real-world-assets/map", { symbol: symbolParam }),
-      );
-      endpointsUsed.push("GET /v5/real-world-assets/map");
-      const mapped = rwaAssetsFrom(mapRes.data);
-      rwaMapCount = mapped.length;
+      const dynamic = cluster.id.startsWith("rwa-") && cluster.rwaId != null;
+      let mapped: RwaAsset[] = [];
+      if (!dynamic) {
+        const symbolParam = cluster.rwaSymbols.join(",");
+        const mapRes = await cached(`map:${symbolParam}`, 5 * 60_000, () =>
+          cmcGet("/v5/real-world-assets/map", { symbol: symbolParam }),
+        );
+        endpointsUsed.push("GET /v5/real-world-assets/map");
+        mapped = rwaAssetsFrom(mapRes.data);
+        rwaMapCount = mapped.length;
+      }
 
       const mappedIds = [
         ...new Set(
@@ -128,9 +143,11 @@ export async function loadDesk(
             .filter((id): id is number => id != null),
         ),
       ];
-      const quoteParam = mappedIds.length
-        ? { rwa_id: mappedIds.join(","), convert: "USD" }
-        : { symbol: cluster.rwaSymbols[0], convert: "USD" };
+      const quoteParam = dynamic
+        ? { rwa_id: cluster.rwaId, convert: "USD" }
+        : mappedIds.length
+          ? { rwa_id: mappedIds.join(","), convert: "USD" }
+          : { symbol: cluster.rwaSymbols[0], convert: "USD" };
       const quoteRes = await cached(`rwaq:${JSON.stringify(quoteParam)}`, 45_000, () =>
         cmcGet("/v5/real-world-assets/quotes/latest", quoteParam),
       );
@@ -196,40 +213,77 @@ export async function loadDesk(
         }
       }
 
-      const rwaIds = [
-        ...new Set(
-          [...wrappers.values()]
-            .map((w) => w.rwaId)
-            .filter((id): id is number => id != null),
-        ),
-      ].slice(0, 6);
+      rwaOk = true;
 
-      const allVenues: Venue[] = [];
-      await Promise.all(
-        rwaIds.map(async (id) => {
+      if (!lite) {
+        const rwaIds = [
+          ...new Set(
+            [...wrappers.values()]
+              .map((w) => w.rwaId)
+              .filter((id): id is number => id != null),
+          ),
+        ].slice(0, 4);
+
+        const allVenues: Venue[] = [];
+        let gated = false;
+        for (const id of rwaIds) {
+          if (gated) break;
           try {
-            const pages = await loadPairPages(id, lite ? 1 : 4);
+            const pages = await loadPairPages(id);
             endpointsUsed.push("GET /v5/real-world-assets/market-pairs/list");
             pairCount += pages.reported;
             allVenues.push(...pages.venues);
           } catch (err) {
-            warnings.push(
-              `market-pairs rwa_id=${id}: ${err instanceof Error ? err.message : String(err)}`,
-            );
+            if (isPlanGate(err)) {
+              gated = true;
+              warnings.push(
+                "market-pairs: Growth+ endpoint. The Startup plan cannot load venues.",
+              );
+            } else {
+              warnings.push(
+                `market-pairs rwa_id=${id}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
           }
-        }),
-      );
-      for (const w of wrappers.values()) {
-        w.venues = venuesFor(allVenues, w.cryptoId);
-        const n = pairCountFor(allVenues, w.cryptoId);
-        if (n) w.pairCount = n;
+        }
+        for (const w of wrappers.values()) {
+          w.venues = venuesFor(allVenues, w.cryptoId);
+          const n = pairCountFor(allVenues, w.cryptoId);
+          if (n) w.pairCount = n;
+        }
+        if (gated) {
+          for (const w of wrappers.values()) {
+            if (w.venues.length) continue;
+            const demo = demoVenuesFor(w.cryptoId);
+            if (demo.length) w.venues = demo;
+          }
+          const sampled = [...wrappers.values()].some((w) =>
+            w.venues.some((v) => v.listed === "demo"),
+          );
+          venueCoverage = {
+            status: sampled ? "demo" : "plan-gated",
+            detail: sampled
+              ? "Market pairs are a Growth+ CMC endpoint. This desk still calculates wrapper relative value using live RWA and crypto quote data. Sample prints below are not a live book."
+              : "Market pairs are a Growth+ CMC endpoint. This desk still calculates wrapper relative value using live RWA and crypto quote data.",
+          };
+        } else {
+          venueCoverage = allVenues.length
+            ? {
+                status: "live",
+                detail: "Spot venues from market-pairs/list, top 100 by 24h volume.",
+              }
+            : {
+                status: "unavailable",
+                detail: "Market pairs returned no spot venues for these wrappers.",
+              };
+        }
       }
 
     } catch (err) {
       warnings.push(
         `RWA family: ${err instanceof Error ? err.message : String(err)}`,
       );
-      source = "seed-fallback";
+      rwaOk = false;
     }
 
   }
@@ -247,6 +301,7 @@ export async function loadDesk(
         cmcGetLive("/v3/cryptocurrency/quotes/latest", {
           id: ids.join(","),
           convert: "USD",
+          skip_invalid: "true",
         }),
       );
       endpointsUsed.push(
@@ -292,8 +347,12 @@ export async function loadDesk(
   }
 
   const list = [...wrappers.values()].filter((w) => w.symbol);
-  if (list.some((w) => w.normalizedUsd != null)) source = "live";
-  const fair = volumeWeightedFairValue(list, cluster.volumeFloorUsd);
+  if (!cluster.comparable) {
+    warnings.push("Unit normalization unavailable for this RWA. Prices are not compared.");
+    for (const w of list) w.normalizedUsd = null;
+  }
+  const pricesOk = list.some((w) => w.normalizedUsd != null);
+  const fair = liquidReference(list, cluster.volumeFloorUsd);
   const scored = applyFairValue(list, fair);
   const { main, dust } = splitBoard(scored, cluster.volumeFloorUsd);
 
@@ -336,12 +395,12 @@ export async function loadDesk(
     }
   }
 
-  const venuesBySymbol: Record<string, Venue[]> = {};
+  const venuesByCryptoId: Record<number, Venue[]> = {};
   for (const w of scored) {
-    if (w.venues.length) venuesBySymbol[w.symbol] = w.venues;
+    if (w.cryptoId != null && w.venues.length) venuesByCryptoId[w.cryptoId] = w.venues;
   }
   const ticket = buildTicket(scored, fair, cluster.volumeFloorUsd, cluster.unit, {
-    venuesBySymbol,
+    venuesByCryptoId,
     history,
   });
 
@@ -383,11 +442,16 @@ export async function loadDesk(
     }
   }
 
+  if (rwaOk && warnings.length === 0) source = "live";
+  else if (rwaOk || pricesOk) source = "partial-live";
+  else source = "fallback";
+
   return {
     cluster,
     generatedAt: new Date().toISOString(),
     source,
-    fairValueUsd: fair,
+    liquidReferenceUsd: fair,
+    venueCoverage,
     averageTokenizedPrice,
     tradfiMarkets,
     issuer,
@@ -412,26 +476,29 @@ export async function loadDesk(
 
 async function loadPairPages(
   rwaId: number,
-  maxPages = 4,
 ): Promise<{ venues: Venue[]; reported: number }> {
-  const venues: Venue[] = [];
-  let reported = 0;
-  const last = 1 + Math.max(1, maxPages - 1) * 200;
-  for (let start = 1; start <= last; start += 200) {
-    const pairs = await cached(`pairs:${rwaId}:${start}`, 120_000, () =>
+  const base = { rwa_id: rwaId, start: 1, limit: 100 };
+  let pairs;
+  try {
+    pairs = await cached(`pairs:${rwaId}:top`, 120_000, () =>
       cmcGet("/v5/real-world-assets/market-pairs/list", {
-        rwa_id: rwaId,
-        start,
-        limit: 200,
+        ...base,
+        sort: "volume_24h",
+        sort_dir: "desc",
       }),
     );
-    const data = (pairs.data ?? {}) as Record<string, unknown>;
-    const list = asArray(data.market_pairs);
-    reported = Math.max(reported, num(data.num_market_pairs) ?? list.length);
-    venues.push(...parseVenues(list));
-    if (!data.has_more || list.length < 200) break;
+  } catch (err) {
+    if (isPlanGate(err)) throw err;
+    pairs = await cached(`pairs:${rwaId}:plain`, 120_000, () =>
+      cmcGet("/v5/real-world-assets/market-pairs/list", base),
+    );
   }
-  return { venues, reported };
+  const data = (pairs.data ?? {}) as Record<string, unknown>;
+  const list = asArray(data.market_pairs);
+  return {
+    venues: parseVenues(list),
+    reported: num(data.num_market_pairs) ?? list.length,
+  };
 }
 
 export async function loadBoard(ids: string[]): Promise<BoardRow[]> {
@@ -461,7 +528,7 @@ export async function loadBoard(ids: string[]): Promise<BoardRow[]> {
             trapSymbol: d.ticket.trap?.symbol ?? null,
             spreadBps: d.ticket.spreadBps,
             dollarGap: d.ticket.dollarGap,
-            fairValueUsd: d.fairValueUsd,
+            liquidReferenceUsd: d.liquidReferenceUsd,
             venue,
             liquidCount: d.main.length,
           } satisfies BoardRow;
@@ -477,7 +544,7 @@ export async function loadBoard(ids: string[]): Promise<BoardRow[]> {
             trapSymbol: null,
             spreadBps: null,
             dollarGap: null,
-            fairValueUsd: null,
+            liquidReferenceUsd: null,
             venue: null,
             liquidCount: 0,
             error: err instanceof Error ? err.message : "Failed",
@@ -523,7 +590,8 @@ function emptyWrapper(
     pairCount: 0,
     basisBps: null,
     tradability: "F",
-    capacityUsd: 0,
+    depthUsd: null,
+    capacityUsd: null,
     venues: [],
   };
 }
@@ -533,8 +601,11 @@ function normalize(
   symbol: string,
   price: number | null,
 ): number | null {
-  if (price == null) return null;
-  const oz = ouncesPerToken(symbol);
-  if (cluster.assetClass === "commodity") return price / oz;
+  if (price == null || !cluster.comparable || cluster.unitKind === "unknown") {
+    return null;
+  }
+  if (cluster.unitKind === "troy_ounce" || cluster.unitKind === "gram") {
+    return price / ouncesPerToken(symbol);
+  }
   return price;
 }

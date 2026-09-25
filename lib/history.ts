@@ -1,3 +1,4 @@
+import { DESK_POLICY } from "./basis";
 import { asArray, cmcGet, hasApiKey, num } from "./cmc";
 import type { HistorySummary, SpreadPoint } from "./types";
 
@@ -8,26 +9,15 @@ export async function fetchSpreadHistory(
   if (!hasApiKey()) {
     return { points: [], summary: null, endpoint: "" };
   }
-  const timeEnd = new Date();
-  const timeStart = new Date(timeEnd.getTime() - 30 * 24 * 3600 * 1000);
-  const [a, b] = await Promise.all([
-    cmcGet("/v2/cryptocurrency/ohlcv/historical", {
-      id: left.cryptoId,
-      convert: "USD",
-      interval: "daily",
-      time_start: timeStart.toISOString(),
-      time_end: timeEnd.toISOString(),
-    }),
-    cmcGet("/v2/cryptocurrency/ohlcv/historical", {
-      id: right.cryptoId,
-      convert: "USD",
-      interval: "daily",
-      time_start: timeStart.toISOString(),
-      time_end: timeEnd.toISOString(),
-    }),
-  ]);
-  const closesA = closesByDay(a.data, left.ouncesPerToken);
-  const closesB = closesByDay(b.data, right.ouncesPerToken);
+  const both = await cmcGet("/v2/cryptocurrency/ohlcv/historical", {
+    id: `${left.cryptoId},${right.cryptoId}`,
+    convert: "USD",
+    time_period: "daily",
+    count: 31,
+    skip_invalid: "true",
+  });
+  const closesA = closesForId(both.data, left.cryptoId, left.ouncesPerToken);
+  const closesB = closesForId(both.data, right.cryptoId, right.ouncesPerToken);
   const days = [...new Set([...closesA.keys(), ...closesB.keys()])].sort();
   const points: SpreadPoint[] = days.map((date) => {
     const buyClose = closesA.get(date) ?? null;
@@ -53,14 +43,22 @@ export function summarizeHistory(
   const vals = points
     .map((p) => p.bps)
     .filter((n): n is number => n != null && Number.isFinite(n));
-  if (vals.length < 5) return null;
+  if (vals.length < DESK_POLICY.minHistoryDays) return null;
   const last = vals[vals.length - 1];
   const minBps = Math.min(...vals);
   const maxBps = Math.max(...vals);
   const below = vals.filter((v) => v <= last).length;
   const percentile = (below / vals.length) * 100;
+  const avgBps = vals.reduce((sum, n) => sum + n, 0) / vals.length;
+  const dollarGaps = points
+    .filter((p) => p.buyClose != null && p.avoidClose != null)
+    .map((p) => (p.avoidClose as number) - (p.buyClose as number));
+  const avgDollarGap = dollarGaps.length
+    ? dollarGaps.reduce((sum, n) => sum + n, 0) / dollarGaps.length
+    : null;
   const extreme =
-    Math.abs(last) >= 15 && (percentile >= 90 || percentile <= 10);
+    Math.abs(last) >= DESK_POLICY.wideBasisBps &&
+    (percentile >= DESK_POLICY.extremePercentile || percentile <= 10);
   return {
     leftSymbol,
     rightSymbol,
@@ -70,7 +68,34 @@ export function summarizeHistory(
     percentile,
     days: vals.length,
     extreme,
+    avgBps,
+    avgDollarGap,
   };
+}
+
+/** Pull one crypto id out of a single-id or comma-separated OHLCV payload. */
+export function closesForId(
+  data: unknown,
+  cryptoId: number,
+  ouncesPerToken: number,
+): Map<string, number> {
+  return closesByDay(seriesNode(data, cryptoId), ouncesPerToken);
+}
+
+function seriesNode(data: unknown, cryptoId: number): unknown {
+  if (!data || typeof data !== "object") return data;
+  const root = data as Record<string, unknown>;
+  const keyed = root[String(cryptoId)];
+  if (keyed && typeof keyed === "object") return keyed;
+  const id = num(root.id);
+  if (id === cryptoId || Array.isArray(root.quotes)) return root;
+  const inner = root.data;
+  if (inner && typeof inner === "object") {
+    const nested = inner as Record<string, unknown>;
+    const hit = nested[String(cryptoId)];
+    if (hit && typeof hit === "object") return hit;
+  }
+  return root;
 }
 
 function closesByDay(

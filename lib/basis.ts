@@ -7,8 +7,17 @@ import type {
   Wrapper,
 } from "./types";
 
+/** Explicit desk rules. These are policy, not a market fact. */
+export const DESK_POLICY = {
+  wideBasisBps: 15,
+  minHistoryDays: 5,
+  extremePercentile: 90,
+  executionDepthHaircut: 0.25,
+  minLiquidWrappers: 2,
+} as const;
+
 /** Gap that counts as wide. 15 bps = 0.15%. */
-export const WIDE_BPS = 15;
+export const WIDE_BPS = DESK_POLICY.wideBasisBps;
 
 export function tradabilityFromVolume(volume24h: number): Tradability {
   if (volume24h >= 10_000_000) return "A";
@@ -18,11 +27,30 @@ export function tradabilityFromVolume(volume24h: number): Tradability {
   return "F";
 }
 
-export function capacityFromVolume(volume24h: number): number {
-  return volume24h * 0.01;
+/** Minimum positive ±2% depth across live venues. Sample prints are ignored. */
+export function aggregateDepthUsd(venues: Venue[]): number | null {
+  const depths = venues
+    .filter((v) => v.listed !== "demo" && v.depthUsd != null && v.depthUsd > 0)
+    .map((v) => v.depthUsd as number);
+  if (!depths.length) return null;
+  return Math.min(...depths);
 }
 
-export function volumeWeightedFairValue(
+/** Conservative size cap. Null when there is no live depth to haircut. */
+export function safeCapacityFromDepth(
+  depthUsd: number | null,
+  haircut = DESK_POLICY.executionDepthHaircut,
+): number | null {
+  if (depthUsd == null || !(depthUsd > 0)) return null;
+  return depthUsd * haircut;
+}
+
+/**
+ * Liquidity-weighted reference of wrappers above the volume floor.
+ * Returns null unless at least two liquid wrappers exist — a thin name
+ * must not set the reference when the book is thin.
+ */
+export function liquidReference(
   wrappers: Wrapper[],
   volumeFloorUsd: number,
 ): number | null {
@@ -30,16 +58,18 @@ export function volumeWeightedFairValue(
     (w) => w.normalizedUsd != null && w.normalizedUsd > 0,
   );
   const liquid = priced.filter((w) => w.volume24h >= volumeFloorUsd);
-  const pool = liquid.length >= 2 ? liquid : priced;
-  const weightSum = pool.reduce((s, w) => s + Math.max(w.volume24h, 1), 0);
-  if (!pool.length || weightSum <= 0) return null;
+  if (liquid.length < DESK_POLICY.minLiquidWrappers) return null;
+  const weightSum = liquid.reduce((s, w) => s + Math.max(w.volume24h, 1), 0);
+  if (weightSum <= 0) return null;
   return (
-    pool.reduce(
+    liquid.reduce(
       (s, w) => s + (w.normalizedUsd as number) * Math.max(w.volume24h, 1),
       0,
     ) / weightSum
   );
 }
+
+export const volumeWeightedFairValue = liquidReference;
 
 export function basisBps(price: number, fair: number): number {
   return ((price - fair) / fair) * 10_000;
@@ -57,7 +87,8 @@ export function applyFairValue(
           ? basisBps(w.normalizedUsd, fair)
           : null,
       tradability: tradabilityFromVolume(w.volume24h),
-      capacityUsd: capacityFromVolume(w.volume24h),
+      depthUsd: aggregateDepthUsd(w.venues),
+      capacityUsd: safeCapacityFromDepth(aggregateDepthUsd(w.venues)),
     }))
     .sort((a, b) => {
       const av = a.normalizedUsd ?? Number.POSITIVE_INFINITY;
@@ -115,7 +146,8 @@ export function splitBoard(
 }
 
 export type TicketContext = {
-  venuesBySymbol?: Record<string, Venue[]>;
+  /** Keyed by crypto id so two wrappers with the same ticker keep their books. */
+  venuesByCryptoId?: Record<number, Venue[]>;
   history?: HistorySummary | null;
 };
 
@@ -151,9 +183,10 @@ function finish(
   ticket: Omit<Ticket, "venues" | "history">,
   ctx?: TicketContext,
 ): Ticket {
-  const venues = ticket.buySymbol
-    ? ctx?.venuesBySymbol?.[ticket.buySymbol] ?? []
-    : [];
+  const venues =
+    ticket.buyCryptoId != null
+      ? ctx?.venuesByCryptoId?.[ticket.buyCryptoId] ?? []
+      : [];
   let detail = ticket.detail;
   if (ctx?.history && !detail.includes("percentile")) detail += historyLine(ctx.history);
   if (venues.length && !detail.includes("If you still buy")) detail += venueLine(venues);
@@ -356,11 +389,15 @@ export function buildTicket(
     );
   }
 
+  const size =
+    cheap.capacityUsd != null && cheap.depthUsd != null
+      ? `Estimated executable size $${formatUsd(cheap.capacityUsd)} (${Math.round(DESK_POLICY.executionDepthHaircut * 100)}% of ±2% depth $${formatUsd(cheap.depthUsd)}).`
+      : "Executable size is not estimated — ±2% venue depth is missing.";
   return finish(
     {
       action: "buy",
-      headline: `Buy ${cheapName}, skip ${richName}`,
-      detail: `Same ${unit}. ${richName} costs $${dollarGap.toFixed(2)} more (${spreadBpsVal.toFixed(1)} bps) than ${cheapName} — a 30-day wide. Cap size around $${formatUsd(Math.min(cheap.capacityUsd, rich.capacityUsd))} (1% of 24h volume).`,
+      headline: `Prefer ${cheapName}, skip ${richName}`,
+      detail: `Gross wrapper basis, not a locked-in profit. Same ${unit}. ${richName} costs $${dollarGap.toFixed(2)} more (${spreadBpsVal.toFixed(1)} bps) than ${cheapName} — wide versus the 30-day range. ${size}`,
       ...sides(cheap, rich),
       spreadBps: spreadBpsVal,
       dollarGap,

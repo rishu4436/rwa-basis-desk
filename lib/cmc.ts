@@ -138,6 +138,29 @@ export function isActivationError(err: unknown): boolean {
   return err instanceof CmcError && (err.cmcCode === 1003 || err.cmcCode === "1003");
 }
 
+/** Startup (and below) cannot call Growth+ endpoints such as RWA market pairs. */
+export function isPlanGate(err: unknown): boolean {
+  if (!(err instanceof CmcError)) return false;
+  const code = err.cmcCode;
+  if (
+    code === 1006 ||
+    code === "1006" ||
+    code === 1007 ||
+    code === "1007" ||
+    err.status === 403
+  ) {
+    return true;
+  }
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes("subscription plan") ||
+    msg.includes("higher plan") ||
+    msg.includes("upgrade your plan") ||
+    msg.includes("not available for your") ||
+    msg.includes("plan does not")
+  );
+}
+
 async function cmcRequest<T>(
   path: string,
   params: Record<string, string | number | undefined>,

@@ -68,11 +68,11 @@ export default function Landing() {
               },
               {
                 k: "The call",
-                t: "Trade, skip, or wait. Wait is the default unless the liquid gap is wide and outside its 30-day range.",
+                t: "Prefer, skip, or wait. Wait is the default unless the liquid gap is wide and outside its 30-day range.",
               },
               {
                 k: "The why",
-                t: "Fair value uses liquid wrappers only. The panel under the call names the venue, the trap, and the basis.",
+                t: "The liquid reference uses liquid wrappers only. The panel under the call names the venue, the trap, and the basis.",
               },
             ].map((card) => (
               <div key={card.k} className="card p-5">

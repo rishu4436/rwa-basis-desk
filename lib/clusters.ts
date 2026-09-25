@@ -1,4 +1,4 @@
-import type { AssetClass, ClusterDef } from "./types";
+import type { AssetClass, AssetUnit, ClusterDef } from "./types";
 
 /**
  * Curated underlyings for the demo. Gold/SPY IDs are public CMC UCIDs
@@ -11,6 +11,8 @@ export const CLUSTERS: ClusterDef[] = [
     label: "Gold",
     blurb: "One ounce of gold. Three wrappers. Three prices.",
     unit: "troy ounce",
+    unitKind: "troy_ounce",
+    comparable: true,
     assetClass: "commodity",
     rwaSymbols: ["GOLD", "XAUT", "PAXG", "XAUM"],
     volumeFloorUsd: 1_000_000,
@@ -40,6 +42,8 @@ export const CLUSTERS: ClusterDef[] = [
     label: "S&P 500 (SPY)",
     blurb: "Same ETF, two issuers. Watch the wrapper gap.",
     unit: "share",
+    unitKind: "share",
+    comparable: true,
     assetClass: "etf",
     rwaSymbols: ["SPY"],
     volumeFloorUsd: 100_000,
@@ -63,6 +67,8 @@ export const CLUSTERS: ClusterDef[] = [
     label: "NVIDIA",
     blurb: "One stock. Several on-chain wrappers.",
     unit: "share",
+    unitKind: "share",
+    comparable: true,
     assetClass: "equity",
     rwaSymbols: ["NVDA"],
     volumeFloorUsd: 100_000,
@@ -80,6 +86,8 @@ export const CLUSTERS: ClusterDef[] = [
     label: "Tesla",
     blurb: "Same company, different tokenized share.",
     unit: "share",
+    unitKind: "share",
+    comparable: true,
     assetClass: "equity",
     rwaSymbols: ["TSLA"],
     volumeFloorUsd: 100_000,
@@ -97,6 +105,8 @@ export const CLUSTERS: ClusterDef[] = [
     label: "Circle",
     blurb: "CRCL shows up on Ondo, xStocks, and bStocks.",
     unit: "share",
+    unitKind: "share",
+    comparable: true,
     assetClass: "equity",
     rwaSymbols: ["CRCL"],
     volumeFloorUsd: 100_000,
@@ -112,7 +122,46 @@ export function assetClassFrom(type: string): AssetClass {
   const t = type.toLowerCase();
   if (t.includes("commodity")) return "commodity";
   if (t.includes("etf") || t.includes("fund")) return "etf";
-  return "equity";
+  if (t.includes("currenc") || t.includes("fiat")) return "currency";
+  if (
+    t.includes("government") ||
+    t.includes("treasury") ||
+    t.includes("sovereign")
+  ) {
+    return "government_security";
+  }
+  if (t.includes("real_estate") || t.includes("real estate")) return "real_estate";
+  if (t.includes("stock") || t.includes("equity") || t.includes("share")) {
+    return "equity";
+  }
+  return "unknown";
+}
+
+export function unitFor(
+  assetClass: AssetClass,
+  symbol: string,
+  name: string,
+): { unit: string; unitKind: AssetUnit; comparable: boolean } {
+  if (assetClass === "equity" || assetClass === "etf") {
+    return { unit: "share", unitKind: "share", comparable: true };
+  }
+  if (assetClass === "currency") {
+    return { unit: "currency unit", unitKind: "currency_unit", comparable: true };
+  }
+  if (assetClass === "government_security") {
+    return { unit: "face value", unitKind: "bond_face_value", comparable: true };
+  }
+  if (assetClass === "real_estate" || assetClass === "unknown") {
+    return { unit: "unknown", unitKind: "unknown", comparable: false };
+  }
+  const blob = `${symbol} ${name}`.toUpperCase();
+  if (/GOLD|XAU|SILVER|XAG/.test(blob)) {
+    return { unit: "troy ounce", unitKind: "troy_ounce", comparable: true };
+  }
+  if (/OIL|WTI|BRENT|CRUDE/.test(blob)) {
+    return { unit: "barrel", unitKind: "barrel", comparable: true };
+  }
+  return { unit: "unknown", unitKind: "unknown", comparable: false };
 }
 
 export function clusterFromAsset(asset: {
@@ -128,11 +177,16 @@ export function clusterFromAsset(asset: {
   );
   if (known) return { ...known, rwaId: asset.rwaId };
   const assetClass = assetClassFrom(asset.assetType);
+  const unit = unitFor(assetClass, asset.symbol, asset.name);
   return {
     id: `rwa-${asset.rwaId}`,
     label: asset.name,
-    blurb: `Tokenized ${asset.symbol}. Compare every wrapper before you buy.`,
-    unit: assetClass === "commodity" ? "troy ounce" : "share",
+    blurb: unit.comparable
+      ? `Tokenized ${asset.symbol}. Wrappers come from this rwa_id.`
+      : `Tokenized ${asset.symbol}. Unit normalization is unavailable, so prices are not compared.`,
+    unit: unit.unit,
+    unitKind: unit.unitKind,
+    comparable: unit.comparable,
     assetClass,
     rwaSymbols: [asset.symbol],
     volumeFloorUsd: assetClass === "commodity" ? 1_000_000 : 100_000,

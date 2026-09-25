@@ -96,7 +96,7 @@ export function frozenDeskPath(desk: DeskSnapshot, list: WatchItem[]): string {
   if (desk.ticket.buySymbol) p.set("buy", desk.ticket.buySymbol);
   if (desk.ticket.avoidSymbol) p.set("avoid", desk.ticket.avoidSymbol);
   if (desk.ticket.spreadBps != null) p.set("bps", desk.ticket.spreadBps.toFixed(1));
-  if (desk.fairValueUsd != null) p.set("fv", desk.fairValueUsd.toFixed(2));
+  if (desk.liquidReferenceUsd != null) p.set("fv", desk.liquidReferenceUsd.toFixed(2));
   if (desk.ticket.trap?.symbol) p.set("trap", desk.ticket.trap.symbol);
   return `/desk?${p.toString()}`;
 }

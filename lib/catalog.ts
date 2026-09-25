@@ -99,6 +99,7 @@ export async function searchCatalog(
 ): Promise<CatalogHit[]> {
   const query = q.trim();
   if (!query) return listPopular(40, assetType);
+  if (query.length < 2 || query.length > 40) return [];
 
   const ticker = query.toUpperCase().replace(/[^A-Z0-9.]/g, "");
   const hits = new Map<number, CatalogHit>();
@@ -126,14 +127,17 @@ export async function searchCatalog(
     }
   }
 
-  const popular = await listPopular(80, assetType);
-  const needle = query.toLowerCase();
-  for (const hit of popular) {
-    if (
-      hit.symbol.toLowerCase().includes(needle) ||
-      hit.name.toLowerCase().includes(needle)
-    ) {
-      if (!hits.has(hit.rwaId)) hits.set(hit.rwaId, hit);
+  const exactTicker = /^[A-Za-z0-9.]{2,12}$/.test(query);
+  if (!exactTicker || hits.size === 0) {
+    const popular = await listPopular(80, assetType);
+    const needle = query.toLowerCase();
+    for (const hit of popular) {
+      if (
+        hit.symbol.toLowerCase().includes(needle) ||
+        hit.name.toLowerCase().includes(needle)
+      ) {
+        if (!hits.has(hit.rwaId)) hits.set(hit.rwaId, hit);
+      }
     }
   }
 

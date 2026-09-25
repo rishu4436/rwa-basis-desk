@@ -1,4 +1,12 @@
-import { basisBps, formatUsd, isLiquidEnough, WIDE_BPS, wrapperKey, wrapperLabel } from "./basis";
+import {
+  basisBps,
+  DESK_POLICY,
+  formatUsd,
+  isLiquidEnough,
+  WIDE_BPS,
+  wrapperKey,
+  wrapperLabel,
+} from "./basis";
 import type { DeskSnapshot, SpreadSeries, Venue, Wrapper } from "./types";
 
 export type DeskTone = "buy" | "skip" | "wait" | "only-one";
@@ -42,6 +50,9 @@ export type BasisRead = {
   average: number | null;
   percentile: number | null;
   days: number | null;
+  /** Mean historical dollar gap (avoid close − buy close). */
+  averageDollar: number | null;
+  lastDollar: number | null;
   signal: "unusually wide" | "unusually tight" | "typical" | "no 30-day range";
 };
 
@@ -59,10 +70,10 @@ const PIPELINE = [
   { label: "RWA map", note: "rwa_id" },
   { label: "RWA quotes", note: "tokens[]" },
   { label: "crypto_id", note: "price + volume" },
-  { label: "Market pairs", note: "venues" },
+  { label: "Market pairs", note: "Growth+ venues" },
   { label: "Liquidity filter", note: "volume floor" },
-  { label: "Basis engine", note: "fair + gap" },
-  { label: "Trade ticket", note: "trade / skip / wait" },
+  { label: "Basis engine", note: "liquid reference" },
+  { label: "Desk call", note: "prefer / skip / wait" },
 ] as const;
 
 export function pipelineSteps(): { label: string; note: string }[] {
@@ -167,7 +178,7 @@ export function deskCall(desk: DeskSnapshot): DeskCall {
   if (t.action === "buy" && t.buySymbol) {
     return {
       tone: "buy",
-      verb: `TRADE ${nameOf(desk, t.buySymbol, t.buyCryptoId)}`,
+      verb: `PREFER ${nameOf(desk, t.buySymbol, t.buyCryptoId)}`,
       detail:
         trapLine ??
         (t.avoidSymbol
@@ -260,7 +271,9 @@ export function whyLines(desk: DeskSnapshot): string[] {
   }
 
   lines.push(
-    `Fair value is the volume-weighted price of wrappers above $${formatUsd(desk.cluster.volumeFloorUsd)} a day. Thin names do not move it.`,
+    desk.liquidReferenceUsd == null
+      ? `No stable liquid reference — fewer than ${DESK_POLICY.minLiquidWrappers} wrappers clear the $${formatUsd(desk.cluster.volumeFloorUsd)} volume floor, so thin names are not averaged in.`
+      : `Liquid reference is the volume-weighted price of wrappers above $${formatUsd(desk.cluster.volumeFloorUsd)} a day. It is wrapper versus wrapper, not a NAV. Thin names do not move it.`,
   );
 
   if (t.history?.extreme) {
@@ -272,10 +285,24 @@ export function whyLines(desk: DeskSnapshot): string[] {
   const print = bestPrint(desk);
   if (print) {
     const where = `${print.exchange}${print.pair ? ` ${print.pair}` : ""}`;
+    const sample = print.listed === "demo" ? " Sample print, not a live book." : "";
     lines.push(
       t.action === "buy"
-        ? `Best execution venue: ${where}.`
-        : `Best print on the liquid wrapper: ${where}.`,
+        ? `Preferred print: ${where}.${sample} Gross wrapper basis only — fees, gas, and bridging are not in this number.`
+        : `Preferred print on the liquid wrapper: ${where}.${sample}`,
+    );
+  }
+  const buy = findWrapper(desk, t.buySymbol, t.buyCryptoId);
+  if (buy?.capacityUsd != null && buy.depthUsd != null) {
+    lines.push(
+      `Estimated executable size $${formatUsd(buy.capacityUsd)} — ${Math.round(DESK_POLICY.executionDepthHaircut * 100)}% of ±2% depth $${formatUsd(buy.depthUsd)}.`,
+    );
+  } else if (
+    desk.venueCoverage.status === "plan-gated" ||
+    desk.venueCoverage.status === "demo"
+  ) {
+    lines.push(
+      "Venue depth is a Growth+ market-pairs field, so executable size is not estimated from 24h volume.",
     );
   }
 
@@ -377,6 +404,19 @@ export function basisRead(spread: SpreadSeries | null): BasisRead {
     .filter((n): n is number => n != null && Number.isFinite(n));
   const summary = spread?.summary ?? null;
   const average = vals.length ? vals.reduce((sum, n) => sum + n, 0) / vals.length : null;
+  const dollars = (spread?.points ?? [])
+    .filter((point) => point.buyClose != null && point.avoidClose != null)
+    .map((point) => (point.avoidClose as number) - (point.buyClose as number));
+  const averageDollar = dollars.length
+    ? dollars.reduce((sum, n) => sum + n, 0) / dollars.length
+    : (summary?.avgDollarGap ?? null);
+  const lastPoint = [...(spread?.points ?? [])]
+    .reverse()
+    .find((point) => point.buyClose != null && point.avoidClose != null);
+  const lastDollar =
+    lastPoint?.buyClose != null && lastPoint.avoidClose != null
+      ? lastPoint.avoidClose - lastPoint.buyClose
+      : null;
   let signal: BasisRead["signal"] = "no 30-day range";
   if (summary?.extreme && summary.percentile >= 90) signal = "unusually wide";
   else if (summary?.extreme && summary.percentile <= 10) signal = "unusually tight";
@@ -389,6 +429,8 @@ export function basisRead(spread: SpreadSeries | null): BasisRead {
     pair,
     current: summary?.lastBps ?? vals.at(-1) ?? null,
     average,
+    averageDollar,
+    lastDollar,
     percentile: summary?.percentile ?? null,
     days: summary?.days ?? (vals.length || null),
     signal,

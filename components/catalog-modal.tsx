@@ -31,6 +31,8 @@ export function CatalogModal({
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cacheRef = useRef(new Map<string, CatalogHit[]>());
 
   useEffect(() => {
     if (!open) return;
@@ -42,23 +44,40 @@ export function CatalogModal({
 
   useEffect(() => {
     if (!open) return;
+    const trimmed = q.trim();
+    if (trimmed.length === 1) {
+      setHits([]);
+      setErr(null);
+      setLoading(false);
+      return;
+    }
+    const type = assetType === "all" ? "" : assetType;
+    const cacheKey = `${type}:${trimmed.toLowerCase()}`;
+    const cached = cacheRef.current.get(cacheKey);
+    if (cached) {
+      setHits(cached);
+      setErr(null);
+      setLoading(false);
+      return;
+    }
     const handle = setTimeout(() => {
       setLoading(true);
       setErr(null);
-      const type = assetType === "all" ? "" : assetType;
       fetch(
-        `/api/catalog?q=${encodeURIComponent(q.trim())}&type=${encodeURIComponent(type)}`,
+        `/api/catalog?q=${encodeURIComponent(trimmed)}&type=${encodeURIComponent(type)}`,
       )
         .then(async (r) => {
           const json = await r.json();
           if (!r.ok) throw new Error(json.error || r.statusText);
-          setHits((json.results ?? []) as CatalogHit[]);
+          const next = (json.results ?? []) as CatalogHit[];
+          cacheRef.current.set(cacheKey, next);
+          setHits(next);
         })
         .catch((e: unknown) =>
           setErr(e instanceof Error ? e.message : "Search failed"),
         )
         .finally(() => setLoading(false));
-    }, q ? 220 : 0);
+    }, trimmed ? 450 : 0);
     return () => clearTimeout(handle);
   }, [q, open, assetType]);
 
@@ -86,7 +105,31 @@ export function CatalogModal({
         aria-label="Close catalog"
         onClick={onClose}
       />
-      <div className="relative z-10 flex max-h-[72vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#11141a] shadow-2xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search assets"
+        className="relative z-10 flex max-h-[72vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#11141a] shadow-2xl"
+        onKeyDown={(e) => {
+          if (e.key !== "Tab") return;
+          const root = dialogRef.current;
+          if (!root) return;
+          const nodes = [...root.querySelectorAll<HTMLElement>("button, input, a")].filter(
+            (node) => !node.hasAttribute("disabled"),
+          );
+          if (!nodes.length) return;
+          const first = nodes[0];
+          const last = nodes[nodes.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }}
+      >
         <div className="flex items-center gap-2 border-b border-white/[0.06] px-3">
           <button
             type="button"
@@ -218,7 +261,8 @@ export function CatalogModal({
                 <button
                   type="button"
                   onClick={() => onUnpin(item.id)}
-                  className="text-[11px] text-white/35 hover:text-rose-300"
+                  disabled={watchlist.length <= 1}
+                  className="text-[11px] text-white/35 hover:text-rose-300 disabled:cursor-not-allowed disabled:text-white/15 disabled:hover:text-white/15"
                 >
                   Remove
                 </button>

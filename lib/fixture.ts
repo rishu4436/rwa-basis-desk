@@ -1,4 +1,4 @@
-import { applyFairValue, buildTicket, splitBoard, volumeWeightedFairValue } from "./basis";
+import { applyFairValue, buildTicket, liquidReference, splitBoard } from "./basis";
 import { getCluster } from "./clusters";
 import type { DeskSnapshot, Venue, Wrapper } from "./types";
 
@@ -32,7 +32,8 @@ function wrap(partial: Partial<Wrapper> & Pick<Wrapper, "symbol">): Wrapper {
     pairCount: 0,
     basisBps: null,
     tradability: "F",
-    capacityUsd: 0,
+    depthUsd: null,
+    capacityUsd: null,
     venues: [],
     ...partial,
   };
@@ -49,6 +50,7 @@ export function goldFixture(): DeskSnapshot {
     volume24h: 48_000_000,
     priceUsd: 4170,
     cryptoId: 5176,
+    depthUsd: 61_000,
     recommended: true,
   });
   const wrappers = applyFairValue(
@@ -73,6 +75,7 @@ export function goldFixture(): DeskSnapshot {
             volume24h: 12_000_000,
             priceUsd: 4166,
             cryptoId: 4705,
+            depthUsd: 48_200,
             recommended: true,
           }),
         ],
@@ -106,11 +109,15 @@ export function goldFixture(): DeskSnapshot {
     ],
     4168,
   );
-  const fair = volumeWeightedFairValue(wrappers, cluster.volumeFloorUsd) ?? 4168;
+  const fair = liquidReference(wrappers, cluster.volumeFloorUsd) ?? 4168;
   const scored = applyFairValue(wrappers, fair);
   const { main, dust } = splitBoard(scored, cluster.volumeFloorUsd);
+  const paxgVenues = scored.find((w) => w.symbol === "PAXG")?.venues ?? [];
   const ticket = buildTicket(scored, fair, cluster.volumeFloorUsd, cluster.unit, {
-    venuesBySymbol: { XAUt: [binance] },
+    venuesByCryptoId: {
+      4705: paxgVenues,
+      5176: [binance],
+    },
     history: {
       leftSymbol: "PAXG",
       rightSymbol: "XAUt",
@@ -120,6 +127,8 @@ export function goldFixture(): DeskSnapshot {
       percentile: 55,
       days: 30,
       extreme: false,
+      avgBps: 12,
+      avgDollarGap: 10,
     },
   });
   const points = Array.from({ length: 12 }, (_, i) => ({
@@ -132,7 +141,11 @@ export function goldFixture(): DeskSnapshot {
     cluster,
     generatedAt: "2026-09-18T12:00:00.000Z",
     source: "fixture",
-    fairValueUsd: fair,
+    liquidReferenceUsd: fair,
+    venueCoverage: {
+      status: "live",
+      detail: "Canned prints for the no-key walkthrough. Not a CMC market-pairs response.",
+    },
     averageTokenizedPrice: 4168.4,
     tradfiMarkets: [],
     issuer: {

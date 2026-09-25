@@ -88,7 +88,7 @@ The **watchlist board** on the home desk is the scan: every pinned name, the cal
 
 1. Open **Gold**. Tradeable board is XAUt / PAXG (and any other name above the volume floor).
 2. A **trap** banner flags the cheap illiquid wrapper (VNXAU / XAUM in the dust drawer). The ticket itself is the liquid book — usually **no trade** if XAUt and PAXG are tight.
-3. **Where to trade** lists spot venues from `market-pairs/list` — the **print** is the CEX with real volume.
+3. **Where to trade** uses `market-pairs/list` when the key can call it. That endpoint is Growth+. On the hackathon Startup plan the desk says so, keeps the basis call, and labels any sample print as not live.
 4. 30-day chart: fade only if today is a range extreme; otherwise the ticket stays **no trade**.
 5. Switch to **S&P 500 (SPY)** and **NVIDIA**.
 6. Footer lists the live endpoints that actually ran.
@@ -102,7 +102,7 @@ Speak in dollars: “same ounce, this one is $36 more and has 1/400th the volume
 3. Expand `tokens[]` (issuer + `crypto_id`).
 4. Batch `GET /v3/cryptocurrency/quotes/latest` for live price/volume.
 5. `GET /v5/real-world-assets/market-pairs/list` for venue count.
-6. Fair value = volume-weighted mid of wrappers above a volume floor (thin names do not pull the peg).
+6. Liquid reference = volume-weighted mid of wrappers above a volume floor. It is wrapper versus wrapper, not a NAV. If fewer than two wrappers clear the floor, the reference stays blank. Thin names never pull it.
 7. Ticket from the **full liquid book** (cheapest vs richest above the floor). A thin cheap name is a trap warning, not the whole call.
 8. 30-day spread = `crypto_id` → `GET /v2/cryptocurrency/ohlcv/historical` (RWA has no history endpoint).
 
@@ -114,7 +114,7 @@ Gram-denominated gold (CGO and similar) is scaled to **USD per troy ounce**.
 |---|---|
 | `GET /v5/real-world-assets/map` | Resolve GOLD / NVDA / SPY to `rwa_id` (0 credits) |
 | `GET /v5/real-world-assets/quotes/latest` | Asset quotes + `tokens[]` with issuer |
-| `GET /v5/real-world-assets/market-pairs/list` | How many venues you can actually exit on |
+| `GET /v5/real-world-assets/market-pairs/list` | Spot venues and ±2% depth. **Growth+ only.** Startup shows a plan notice instead of an empty book |
 | `GET /v5/real-world-assets/info` | Underlying card: CIK → EDGAR, industry, about |
 | `GET /v5/real-world-assets/issuers` | Issuer card: site, token roster, `num_tokens` |
 | `GET /v3/cryptocurrency/quotes/latest` | Per-wrapper price, volume, market cap, slug |
@@ -122,7 +122,8 @@ Gram-denominated gold (CGO and similar) is scaled to **USD per troy ounce**.
 
 ## API feedback (for CMC)
 
-- **No underlying NAV.** There is no LBMA / NYSE print on the RWA family, so basis is wrapper vs wrapper, not vs the real asset.
+- **Market pairs are Growth+.** The hackathon key is Startup, so `/v5/real-world-assets/market-pairs/list` is not available. The desk still prices wrappers from RWA quotes and crypto quotes, and it says the venue gap out loud instead of showing an empty "Where to trade".
+- **No underlying NAV.** There is no LBMA / NYSE print on the RWA family, so the liquid reference is wrapper vs wrapper, not vs the real asset.
 - **No RWA history.** Spread charts have to join `crypto_id` into crypto OHLCV.
 - **Units are inconsistent.** Some gold tokens are per ounce, some per gram. A naive price sort is wrong.
 - **One underlying is many `rwa_id`s.** Gold is not always one `tokens[]` array. Clustering by ticker family is required for the product to exist.

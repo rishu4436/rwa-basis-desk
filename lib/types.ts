@@ -1,4 +1,35 @@
-export type AssetClass = "commodity" | "equity" | "etf";
+export type AssetClass =
+  | "commodity"
+  | "equity"
+  | "etf"
+  | "currency"
+  | "government_security"
+  | "real_estate"
+  | "unknown";
+
+export type AssetUnit =
+  | "share"
+  | "troy_ounce"
+  | "gram"
+  | "barrel"
+  | "tonne"
+  | "currency_unit"
+  | "bond_face_value"
+  | "unknown";
+
+export type DataMode = "live" | "partial-live" | "fixture" | "fallback";
+
+export type VenueCoverageStatus =
+  | "live"
+  | "plan-gated"
+  | "demo"
+  | "unavailable"
+  | "skipped";
+
+export type VenueCoverage = {
+  status: VenueCoverageStatus;
+  detail: string;
+};
 
 export type TicketAction = "buy" | "skip" | "wait" | "only-one";
 
@@ -15,7 +46,11 @@ export type ClusterDef = {
   id: string;
   label: string;
   blurb: string;
+  /** Display unit, e.g. "troy ounce" or "share". */
   unit: string;
+  unitKind: AssetUnit;
+  /** False when the unit is unknown — prices must not be compared. */
+  comparable: boolean;
   assetClass: AssetClass;
   /** Symbols sent to RWA map / quotes (CMC grouped-RWA tickers). */
   rwaSymbols: string[];
@@ -58,6 +93,8 @@ export type Venue = {
   marketScore: number | null;
   depthUsd: number | null;
   lastUpdated: string | null;
+  /** Demo prints are labelled samples. They are not a live book. */
+  listed?: "live" | "demo";
 };
 
 export type TradfiMarket = {
@@ -92,7 +129,10 @@ export type Wrapper = {
   pairCount: number;
   basisBps: number | null;
   tradability: Tradability;
-  capacityUsd: number;
+  /** ±2% depth used for the size cap. Null when venue depth is missing. */
+  depthUsd: number | null;
+  /** Haircut of displayed depth. Null when depth is missing or only a sample. */
+  capacityUsd: number | null;
   venues: Venue[];
 };
 
@@ -105,6 +145,10 @@ export type HistorySummary = {
   percentile: number;
   days: number;
   extreme: boolean;
+  /** Mean of the historical bps series. */
+  avgBps: number;
+  /** Mean of avoidClose − buyClose. Null when closes are missing. */
+  avgDollarGap: number | null;
 };
 
 export type TicketTrap = {
@@ -152,8 +196,10 @@ export type UnderlyingInfo = {
 export type DeskSnapshot = {
   cluster: ClusterDef;
   generatedAt: string;
-  source: "live" | "seed-fallback" | "fixture";
-  fairValueUsd: number | null;
+  source: DataMode;
+  /** Volume-weighted price of liquid wrappers. Not a NAV. */
+  liquidReferenceUsd: number | null;
+  venueCoverage: VenueCoverage;
   averageTokenizedPrice: number | null;
   tradfiMarkets: TradfiMarket[];
   issuer: IssuerProfile | null;
@@ -202,7 +248,7 @@ export type BoardRow = {
   trapSymbol: string | null;
   spreadBps: number | null;
   dollarGap: number | null;
-  fairValueUsd: number | null;
+  liquidReferenceUsd: number | null;
   venue: Venue | null;
   liquidCount: number;
   error?: string;

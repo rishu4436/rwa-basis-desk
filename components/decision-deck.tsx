@@ -1,10 +1,11 @@
-import { formatUsd } from "@/lib/basis";
+import { DESK_POLICY, formatUsd } from "@/lib/basis";
 import {
   extraOnNotional,
   formatDelta,
   formatNotional,
   formatPlainUsd,
   formatSignedBps,
+  formatSignedUsd,
   formatSizeLabel,
   NOTIONAL_PRESETS,
   type DisplayUnit,
@@ -81,7 +82,7 @@ export function DecisionHero({
       ? "—"
       : unit === "usd"
         ? signedDollar(opp.dollar)
-        : formatDelta(opp.bps, unit, desk.fairValueUsd);
+        : formatDelta(opp.bps, unit, desk.liquidReferenceUsd);
   const extra =
     opp != null ? extraOnNotional(Math.abs(opp.bps), notional) : null;
 
@@ -92,17 +93,33 @@ export function DecisionHero({
           <p className="text-[11px] uppercase tracking-[0.22em] text-gold-400">
             {symbol}
             <span className="ml-3 text-white/35">
-              {desk.source === "live" ? "Live book" : desk.source === "fixture" ? "Fixture book" : "Cached book"}
+              {desk.source === "live"
+                ? "Live book"
+                : desk.source === "partial-live"
+                  ? "Partial live"
+                  : desk.source === "fixture"
+                    ? "Fixture book"
+                    : "Fallback book"}
             </span>
           </p>
           <p className="mt-2 font-mono text-4xl tracking-tight text-white num sm:text-5xl">
-            {money(desk.fairValueUsd)}
+            {money(desk.liquidReferenceUsd)}
           </p>
           <p className="mt-1 text-xs text-white/40">
-            Fair value · per {desk.cluster.unit}
+            {desk.liquidReferenceUsd == null
+              ? desk.cluster.comparable
+                ? "No stable liquid reference"
+                : "Unit normalization unavailable for this RWA"
+              : `Liquid reference · per ${desk.cluster.unit}`}
             {desk.averageTokenizedPrice != null
               ? ` · CMC average ${money(desk.averageTokenizedPrice)}`
               : ""}
+          </p>
+          <p className="mt-2 text-[11px] leading-5 text-white/35">
+            Desk policy · wide ≥ {DESK_POLICY.wideBasisBps} bps · extreme ≥{" "}
+            {DESK_POLICY.extremePercentile}th percentile of 30 daily closes · liquid
+            reference needs {DESK_POLICY.minLiquidWrappers} wrappers · size cap{" "}
+            {Math.round(DESK_POLICY.executionDepthHaircut * 100)}% of ±2% depth
           </p>
         </div>
 
@@ -185,9 +202,54 @@ export function DecisionHero({
             {call.verb}
           </p>
           <p className="mt-3 text-sm leading-6 text-white/70">{call.detail}</p>
+          <ExecutionNote desk={desk} notional={notional} />
         </div>
       </div>
     </section>
+  );
+}
+
+function ExecutionNote({
+  desk,
+  notional,
+}: {
+  desk: DeskSnapshot;
+  notional: number;
+}) {
+  const buy =
+    desk.wrappers.find((w) =>
+      desk.ticket.buyCryptoId != null
+        ? w.cryptoId === desk.ticket.buyCryptoId
+        : w.symbol === desk.ticket.buySymbol,
+    ) ?? null;
+  const depth = buy?.depthUsd ?? null;
+  const safe = buy?.capacityUsd ?? null;
+  const util = depth != null && depth > 0 ? (notional / depth) * 100 : null;
+  const gated =
+    desk.venueCoverage.status === "plan-gated" || desk.venueCoverage.status === "demo";
+  return (
+    <div className="mt-4 border-t border-white/10 pt-3 text-[11px] leading-5 text-white/55">
+      {safe != null && depth != null ? (
+        <>
+          <p className="font-mono text-sm text-white">
+            Estimated executable size {formatPlainUsd(safe)}
+          </p>
+          <p>±2% depth {formatPlainUsd(depth)}</p>
+          <p>
+            Desk size cap: {Math.round(DESK_POLICY.executionDepthHaircut * 100)}% of
+            displayed depth
+            {util != null ? ` · this size uses ${util.toFixed(0)}% of depth` : ""}
+          </p>
+        </>
+      ) : (
+        <p>
+          {gated
+            ? "Venue depth is unavailable on the Startup plan. Executable size is not estimated from 24h volume."
+            : "No ±2% depth on the preferred wrapper, so executable size stays blank."}
+        </p>
+      )}
+      <p className="mt-1 text-white/35">Gross wrapper basis. Not a locked-in profit.</p>
+    </div>
   );
 }
 
@@ -196,7 +258,7 @@ export function WhyPanel({ desk }: { desk: DeskSnapshot }) {
   return (
     <section className="card h-full p-5 sm:p-6">
       <h2 className="text-[11px] uppercase tracking-[0.18em] text-white/35">
-        {desk.ticket.action === "buy" ? "Why this trade?" : "Why this call?"}
+        {desk.ticket.action === "buy" ? "Why this preference?" : "Why this call?"}
       </h2>
       <ol className="mt-4 space-y-3">
         {lines.map((line) => (
@@ -232,7 +294,7 @@ export function BasisHistory({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-[11px] uppercase tracking-[0.18em] text-white/35">
-            Basis history
+            Regime check · 30-day daily closes
           </h2>
           <p className="mt-2 font-mono text-sm text-white">{read.pair}</p>
         </div>
@@ -248,8 +310,22 @@ export function BasisHistory({
         )}
       </div>
       <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-white/[0.06] pt-4 sm:grid-cols-4">
-        <Stat label="Last close" value={formatDelta(read.current, unit, fairUsd)} />
-        <Stat label="30d average" value={formatDelta(read.average, unit, fairUsd)} />
+        <Stat
+          label="Last close"
+          value={
+            unit === "usd" && read.lastDollar != null
+              ? formatSignedUsd(read.lastDollar)
+              : formatDelta(read.current, unit, fairUsd)
+          }
+        />
+        <Stat
+          label="30d average"
+          value={
+            unit === "usd" && read.averageDollar != null
+              ? formatSignedUsd(read.averageDollar)
+              : formatDelta(read.average, unit, fairUsd)
+          }
+        />
         <Stat
           label="30d percentile"
           value={read.percentile == null ? "—" : ordinal(read.percentile)}
@@ -257,9 +333,10 @@ export function BasisHistory({
         <Stat label="Signal" value={read.signal} />
       </dl>
       <p className="mt-3 text-[11px] leading-5 text-white/30">
-        Daily closes, not the live quote in the call. CoinMarketCap has no
-        dedicated historical RWA series, so this joins each wrapper&apos;s crypto_id
-        to /v2/cryptocurrency/ohlcv/historical.
+        Regime check uses 30-day daily closes. The desk call uses the live quote.
+        Dollar stats are the average of those historical gaps, not basis times
+        today&apos;s reference. CoinMarketCap has no dedicated historical RWA series,
+        so this joins each wrapper&apos;s crypto_id to /v2/cryptocurrency/ohlcv/historical.
       </p>
     </section>
   );
@@ -493,7 +570,13 @@ export function PipelinePanel({ desk }: { desk: DeskSnapshot }) {
           </span>
           <span className="mt-1 block text-xs text-white/45">
             {liveCount}/{hits.length} endpoints on this load
-            {desk.source === "live" ? " · live" : desk.source === "fixture" ? " · fixture" : ""}
+            {desk.source === "live"
+              ? " · live"
+              : desk.source === "partial-live"
+                ? " · partial live"
+                : desk.source === "fixture"
+                  ? " · fixture"
+                  : " · fallback"}
           </span>
         </span>
         <span className="font-mono text-[11px] text-white/30">toggle</span>

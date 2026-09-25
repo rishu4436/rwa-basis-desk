@@ -4,12 +4,16 @@ import {
   applyFairValue,
   buildTicket,
   liquidSpreadPair,
+  safeCapacityFromDepth,
   splitBoard,
   tradabilityFromVolume,
   volumeWeightedFairValue,
   wrapperLabel,
 } from "./basis";
-import { summarizeHistory } from "./history";
+import { closesForId, summarizeHistory } from "./history";
+import { CmcError, isPlanGate } from "./cmc";
+import { assetClassFrom, unitFor } from "./clusters";
+import { allowRequest } from "./guard";
 import { parseVenues, pickPrint, venuesFor } from "./venues";
 import { goldFixture } from "./fixture";
 import {
@@ -61,7 +65,8 @@ function wrap(partial: Partial<Wrapper> & Pick<Wrapper, "symbol">): Wrapper {
     pairCount: 0,
     basisBps: null,
     tradability: "F",
-    capacityUsd: 0,
+    depthUsd: null,
+    capacityUsd: null,
     venues: [],
     ...partial,
   };
@@ -108,6 +113,97 @@ describe("fair value", () => {
     );
     const xaum = rows.find((r) => r.symbol === "XAUM");
     assert.ok((xaum?.basisBps ?? 0) > 0);
+  });
+
+  it("returns no reference when fewer than two wrappers are liquid", () => {
+    const ref = volumeWeightedFairValue(
+      [
+        wrap({ symbol: "XAUt", normalizedUsd: 4200, volume24h: 300_000_000 }),
+        wrap({ symbol: "XAUM", normalizedUsd: 4050, volume24h: 30_000 }),
+      ],
+      1_000_000,
+    );
+    assert.equal(ref, null);
+  });
+
+  it("sets executable size to 25% of the minimum live depth", () => {
+    const rows = applyFairValue(
+      [
+        wrap({
+          symbol: "PAXG",
+          normalizedUsd: 4100,
+          volume24h: 5_000_000,
+          venues: [
+            {
+              exchange: "Binance",
+              slug: "binance",
+              pair: "PAXG/USDT",
+              category: "spot",
+              kind: "cex",
+              volume24h: 5_000_000,
+              priceUsd: 4100,
+              cryptoId: 4705,
+              recommended: true,
+              marketScore: null,
+              depthUsd: 40_000,
+              lastUpdated: null,
+              listed: "live",
+            },
+            {
+              exchange: "OKX",
+              slug: "okx",
+              pair: "PAXG/USDT",
+              category: "spot",
+              kind: "cex",
+              volume24h: 1_000_000,
+              priceUsd: 4102,
+              cryptoId: 4705,
+              recommended: false,
+              marketScore: null,
+              depthUsd: 32_800,
+              lastUpdated: null,
+              listed: "live",
+            },
+          ],
+        }),
+      ],
+      4100,
+    );
+    assert.equal(rows[0].depthUsd, 32_800);
+    assert.equal(rows[0].capacityUsd, safeCapacityFromDepth(32_800));
+    assert.equal(rows[0].capacityUsd, 8_200);
+  });
+
+  it("ignores sample depth when estimating executable size", () => {
+    const rows = applyFairValue(
+      [
+        wrap({
+          symbol: "PAXG",
+          normalizedUsd: 4100,
+          volume24h: 5_000_000,
+          venues: [
+            {
+              exchange: "Binance",
+              slug: "binance",
+              pair: "PAXG/USDT",
+              category: "spot",
+              kind: "cex",
+              volume24h: 1,
+              priceUsd: null,
+              cryptoId: 4705,
+              recommended: false,
+              marketScore: null,
+              depthUsd: 48_200,
+              lastUpdated: null,
+              listed: "demo",
+            },
+          ],
+        }),
+      ],
+      null,
+    );
+    assert.equal(rows[0].capacityUsd, null);
+    assert.equal(rows[0].depthUsd, null);
   });
 });
 
@@ -208,6 +304,8 @@ describe("ticket", () => {
         maxBps: 42,
         percentile: 95,
         days: 30,
+        avgBps: 20,
+        avgDollarGap: null,
         extreme: true,
       },
     });
@@ -238,6 +336,8 @@ describe("ticket", () => {
         maxBps: 200,
         percentile: 40,
         days: 30,
+        avgBps: 20,
+        avgDollarGap: null,
         extreme: false,
       },
     });
@@ -262,6 +362,8 @@ describe("ticket", () => {
         maxBps: 130,
         percentile: 95,
         days: 30,
+        avgBps: 20,
+        avgDollarGap: null,
         extreme: true,
       },
     });
@@ -295,6 +397,43 @@ describe("history", () => {
     assert.ok(s);
     assert.equal(s.extreme, true);
     assert.ok(s.percentile >= 90);
+    assert.equal(s.avgDollarGap, 0);
+  });
+
+  it("averages the historical dollar gap instead of scaling bps by today's price", () => {
+    const points = [
+      { date: "2026-09-01", bps: 10, buyClose: 100, avoidClose: 110 },
+      { date: "2026-09-02", bps: 20, buyClose: 100, avoidClose: 130 },
+      { date: "2026-09-03", bps: 30, buyClose: 200, avoidClose: 230 },
+      { date: "2026-09-04", bps: 40, buyClose: 200, avoidClose: 240 },
+      { date: "2026-09-05", bps: 50, buyClose: 200, avoidClose: 250 },
+    ];
+    const s = summarizeHistory(points, "PAXG", "XAUt");
+    assert.ok(s);
+    assert.equal(s.avgDollarGap, (10 + 30 + 30 + 40 + 50) / 5);
+  });
+
+  it("reads both crypto ids from one OHLCV payload", () => {
+    const data = {
+      "5176": {
+        quotes: [
+          {
+            time_close: "2026-09-01T00:00:00.000Z",
+            quote: { USD: { close: 4100 } },
+          },
+        ],
+      },
+      "4705": {
+        quotes: [
+          {
+            time_close: "2026-09-01T00:00:00.000Z",
+            quote: { USD: { close: 4200 } },
+          },
+        ],
+      },
+    };
+    assert.equal(closesForId(data, 5176, 1).get("2026-09-01"), 4100);
+    assert.equal(closesForId(data, 4705, 1).get("2026-09-01"), 4200);
   });
 });
 
@@ -321,6 +460,7 @@ describe("venues", () => {
         market_pair: "PAXG/USDT",
         market_pair_base: { crypto_id: 4705 },
         quotes: [{ symbol: "USD", volume_24h: 12_000_000, price: 4368 }],
+        depth_negative_two: 500_000,
       },
     ]);
     assert.equal(parsed.length, 2);
@@ -330,7 +470,7 @@ describe("venues", () => {
     assert.equal(top[0].kind, "cex");
   });
 
-  it("prefers a major CEX when volume is close to a minor leader", () => {
+  it("prefers the cheaper print when depth is equal", () => {
     const parsed = parseVenues([
       {
         category: "spot",
@@ -348,10 +488,10 @@ describe("venues", () => {
       },
     ]);
     const top = venuesFor(parsed, 5176);
-    assert.equal(top.find((v) => v.recommended)?.exchange, "Binance");
+    assert.equal(top.find((v) => v.recommended)?.exchange, "Deepcoin");
   });
 
-  it("uses market_score when the pair payload has it", () => {
+  it("does not let market score override a worse price", () => {
     const parsed = parseVenues([
       {
         category: "spot",
@@ -367,11 +507,125 @@ describe("venues", () => {
         exchange: { name: "Binance", slug: "binance" },
         market_pair: "XAUt/USDT",
         market_pair_base: { crypto_id: 5176 },
-        quotes: [{ symbol: "USD", volume_24h: 5_000_000, price: 4361 }],
+        quotes: [{ symbol: "USD", volume_24h: 5_000_000, price: 4500 }],
+        depth_negative_two: 20_000,
       },
     ]);
-    assert.equal(pickPrint(parsed).exchange, "Binance");
+    assert.equal(pickPrint(parsed).exchange, "Deepcoin");
     assert.equal(parsed[0].marketScore, 2);
+  });
+
+  it("uses market score when price and depth match", () => {
+    const now = Date.parse("2026-09-25T12:00:00.000Z");
+    const parsed = parseVenues([
+      {
+        category: "spot",
+        market_score: 2,
+        exchange: { name: "Deepcoin", slug: "deepcoin" },
+        market_pair: "XAUt/USDT",
+        market_pair_base: { crypto_id: 5176 },
+        quotes: [
+          {
+            symbol: "USD",
+            volume_24h: 30_000_000,
+            price: 4360,
+            last_updated: "2026-09-25T12:00:00.000Z",
+          },
+        ],
+        depth_negative_two: 40_000,
+      },
+      {
+        category: "spot",
+        market_score: 9,
+        exchange: { name: "Binance", slug: "binance" },
+        market_pair: "XAUt/USDT",
+        market_pair_base: { crypto_id: 5176 },
+        quotes: [
+          {
+            symbol: "USD",
+            volume_24h: 5_000_000,
+            price: 4360,
+            last_updated: "2026-09-25T12:00:00.000Z",
+          },
+        ],
+        depth_negative_two: 40_000,
+      },
+    ]);
+    assert.equal(pickPrint(parsed, now).exchange, "Binance");
+  });
+
+  it("treats a sub-5 bps price gap as a tie and uses volume", () => {
+    const now = Date.parse("2026-09-25T12:00:00.000Z");
+    const parsed = parseVenues([
+      {
+        category: "spot",
+        exchange: { name: "Tiny", slug: "tiny" },
+        market_pair: "PAXG/USDT",
+        market_pair_base: { crypto_id: 4705 },
+        quotes: [
+          {
+            symbol: "USD",
+            volume_24h: 1_000_000,
+            price: 4360,
+            last_updated: "2026-09-25T12:00:00.000Z",
+          },
+        ],
+        depth_negative_two: 40_000,
+      },
+      {
+        category: "spot",
+        exchange: { name: "Binance", slug: "binance" },
+        market_pair: "PAXG/USDT",
+        market_pair_base: { crypto_id: 4705 },
+        quotes: [
+          {
+            symbol: "USD",
+            volume_24h: 30_000_000,
+            price: 4362,
+            last_updated: "2026-09-25T12:00:00.000Z",
+          },
+        ],
+        depth_negative_two: 40_000,
+      },
+    ]);
+    assert.equal(pickPrint(parsed, now).exchange, "Binance");
+  });
+
+  it("penalizes a stale quote against an equal fresh print", () => {
+    const now = Date.parse("2026-09-25T12:00:00.000Z");
+    const parsed = parseVenues([
+      {
+        category: "spot",
+        exchange: { name: "StaleX", slug: "stalex" },
+        market_pair: "PAXG/USDT",
+        market_pair_base: { crypto_id: 4705 },
+        quotes: [
+          {
+            symbol: "USD",
+            volume_24h: 20_000_000,
+            price: 4360,
+            last_updated: "2026-09-20T12:00:00.000Z",
+          },
+        ],
+        depth_negative_two: 40_000,
+      },
+      {
+        category: "spot",
+        exchange: { name: "FreshX", slug: "freshx" },
+        market_pair: "PAXG/USDT",
+        market_pair_base: { crypto_id: 4705 },
+        quotes: [
+          {
+            symbol: "USD",
+            volume_24h: 8_000_000,
+            price: 4360,
+            last_updated: "2026-09-25T11:50:00.000Z",
+          },
+        ],
+        depth_negative_two: 40_000,
+      },
+    ]);
+    assert.equal(pickPrint(parsed, now).exchange, "FreshX");
   });
 });
 
@@ -464,7 +718,7 @@ describe("decision narrative", () => {
     const why = whyLines(desk).join(" ");
     assert.match(why, /inside the 30-day range/);
     assert.match(why, /fails the \$1\.00M daily volume floor/);
-    assert.match(why, /Fair value is the volume-weighted price/);
+    assert.match(why, /Liquid reference is the volume-weighted price/);
     assert.match(why, /Coinbase PAXG\/USD/);
 
     const bars = liquidityBars(desk);
@@ -522,7 +776,6 @@ describe("decision narrative", () => {
       676,
     );
     const ticket = buildTicket(scored, 676, 100_000, "share", {
-      venuesBySymbol: { SPYon: [] },
       history: {
         leftSymbol: "SPYon",
         rightSymbol: "SPYX",
@@ -531,6 +784,8 @@ describe("decision narrative", () => {
         maxBps: 130,
         percentile: 96,
         days: 30,
+        avgBps: 20,
+        avgDollarGap: null,
         extreme: true,
       },
     });
@@ -538,7 +793,7 @@ describe("decision narrative", () => {
     const desk = {
       ...goldFixture(),
       cluster: { ...cluster, id: "spy", label: "SPY", unit: "share", volumeFloorUsd: 100_000 },
-      fairValueUsd: 676,
+      liquidReferenceUsd: 676,
       wrappers: scored,
       main: scored,
       dust: [],
@@ -546,7 +801,7 @@ describe("decision narrative", () => {
       spread: null,
       issuer: null,
     };
-    assert.equal(deskCall(desk).verb, "TRADE SPYon");
+    assert.equal(deskCall(desk).verb, "PREFER SPYon");
     const why = whyLines(desk).join(" ");
     assert.match(why, /SPYon is \$8\.35 cheaper per share than SPYX/);
     assert.match(why, /96th percentile/);
@@ -563,6 +818,108 @@ describe("duplicate tickers", () => {
     ];
     assert.equal(wrapperLabel(book[0], book), "SPY · Robinhood");
     assert.equal(wrapperLabel(book[2], book), "SPYX");
+  });
+});
+
+describe("duplicate venue books", () => {
+  it("keeps each crypto id's venues when the ticker matches", () => {
+    const robinhood = {
+      exchange: "Robinhood",
+      slug: "robinhood",
+      pair: "SPY/USD",
+      category: "spot",
+      kind: "cex" as const,
+      volume24h: 1_000_000,
+      priceUsd: 100,
+      cryptoId: 111,
+      recommended: true,
+      marketScore: null,
+      depthUsd: 50_000,
+      lastUpdated: null,
+      listed: "live" as const,
+    };
+    const ondo = {
+      ...robinhood,
+      exchange: "Ondo",
+      slug: "ondo",
+      cryptoId: 222,
+      priceUsd: 110,
+      depthUsd: 20_000,
+    };
+    const scored = applyFairValue(
+      [
+        wrap({
+          symbol: "SPY",
+          cryptoId: 111,
+          issuerName: "Robinhood",
+          normalizedUsd: 100,
+          volume24h: 2_000_000,
+          venues: [robinhood],
+        }),
+        wrap({
+          symbol: "SPY",
+          cryptoId: 222,
+          issuerName: "Ondo",
+          normalizedUsd: 110,
+          volume24h: 2_000_000,
+          venues: [ondo],
+        }),
+      ],
+      105,
+    );
+    const ticket = buildTicket(scored, 105, 100_000, "share", {
+      venuesByCryptoId: { 111: [robinhood], 222: [ondo] },
+      history: {
+        leftSymbol: "SPY",
+        rightSymbol: "SPY",
+        lastBps: 1000,
+        minBps: 1,
+        maxBps: 1000,
+        percentile: 96,
+        days: 30,
+        avgBps: 20,
+        avgDollarGap: 8,
+        extreme: true,
+      },
+    });
+    assert.equal(ticket.buyCryptoId, 111);
+    assert.equal(ticket.venues[0]?.exchange, "Robinhood");
+    assert.notEqual(ticket.venues[0]?.exchange, "Ondo");
+  });
+});
+
+describe("rwa units", () => {
+  it("keeps stock and ETF as shares and refuses an unknown commodity unit", () => {
+    assert.equal(assetClassFrom("stock"), "equity");
+    assert.equal(unitFor("equity", "AAPL", "Apple").unitKind, "share");
+    assert.equal(unitFor("etf", "SPY", "SPDR").unitKind, "share");
+    assert.equal(unitFor("commodity", "GOLD", "Gold").unitKind, "troy_ounce");
+    assert.equal(assetClassFrom("government_security"), "government_security");
+    assert.equal(
+      unitFor("government_security", "UST", "US Treasury").unitKind,
+      "bond_face_value",
+    );
+    assert.equal(assetClassFrom("currency"), "currency");
+    assert.equal(unitFor("currency", "USD", "US Dollar").unitKind, "currency_unit");
+    assert.equal(assetClassFrom("real_estate"), "real_estate");
+    assert.equal(unitFor("real_estate", "HOME", "House").comparable, false);
+    assert.equal(unitFor("commodity", "COFFEE", "Coffee").comparable, false);
+    assert.equal(unitFor("unknown", "ZZZ", "Mystery").comparable, false);
+  });
+});
+
+describe("plan gate and request guard", () => {
+  it("treats a Growth+ rejection as a plan gate", () => {
+    assert.equal(isPlanGate(new CmcError("subscription plan", 403, 1006)), true);
+    assert.equal(isPlanGate(new CmcError("missing quote", 400, 400)), false);
+  });
+
+  it("stops a burst and refills after the window", () => {
+    const key = `desk-test-${Math.random()}`;
+    assert.equal(allowRequest(key, 2, 60_000, 1_000), true);
+    assert.equal(allowRequest(key, 2, 60_000, 1_000), true);
+    assert.equal(allowRequest(key, 2, 60_000, 1_000), false);
+    assert.equal(allowRequest(key, 2, 60_000, 61_000), true);
   });
 });
 

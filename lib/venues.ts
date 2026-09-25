@@ -50,38 +50,93 @@ export function parseVenues(pairs: unknown[]): Venue[] {
   return out;
 }
 
-const MAJOR =
-  /binance|coinbase|kraken|okx|bybit|bitget|kucoin|gate|mexc|htx|bitfinex|gemini|crypto\.com/i;
+const STALE_MS = 6 * 60 * 60 * 1000;
 
-function isMajor(v: Venue): boolean {
-  return (
-    v.kind === "cex" && (MAJOR.test(v.exchange) || MAJOR.test(v.slug))
-  );
+function ageMs(v: Venue, now: number): number | null {
+  if (!v.lastUpdated) return null;
+  const t = Date.parse(v.lastUpdated);
+  if (!Number.isFinite(t)) return null;
+  return Math.max(0, now - t);
 }
 
-/** Prefer a major CEX when its volume is in the same league as the leader. */
-export function pickPrint(rows: Venue[]): Venue {
-  const ranked = [...rows].sort((a, b) => b.volume24h - a.volume24h);
-  const top = ranked[0];
-  const scored = ranked.filter(
-    (v) => v.marketScore != null && v.volume24h >= 100_000,
+/**
+ * Preferred print for a buy.
+ * Price and ±2% depth come first. Market score and volume are tie-breaks.
+ * A large venue with a worse price does not win on size alone.
+ */
+export function pickPrint(rows: Venue[], now = Date.now()): Venue {
+  const priced = rows.filter((v) => v.priceUsd != null && v.priceUsd > 0);
+  const pool = priced.length ? priced : rows;
+  const fresh = pool.filter((v) => {
+    const age = ageMs(v, now);
+    return age == null || age <= 24 * 60 * 60 * 1000;
+  });
+  const candidates = fresh.length ? fresh : pool;
+  const bestPrice = Math.min(
+    ...candidates.map((v) => v.priceUsd ?? Number.POSITIVE_INFINITY),
   );
-  if (scored.length) {
-    scored.sort(
-      (a, b) =>
-        (b.marketScore as number) - (a.marketScore as number) ||
-        b.volume24h - a.volume24h,
-    );
-    const best = scored[0];
-    const floor = (best.marketScore as number) * 0.9;
-    const major = scored.find((v) => isMajor(v) && (v.marketScore as number) >= floor);
-    return major ?? best;
+
+  function score(v: Venue): number {
+    const price = v.priceUsd ?? bestPrice;
+    const gapBps =
+      bestPrice > 0 && Number.isFinite(bestPrice) && price > 0
+        ? ((price - bestPrice) / bestPrice) * 10_000
+        : 500;
+    // A few bps is quote noise when depth is the real cost. Ignore it.
+    const pricePenalty = gapBps <= 5 ? 0 : gapBps - 5;
+    const depth = v.depthUsd ?? 0;
+    const depthPenalty = depth <= 0 ? 80 : depth < 10_000 ? 40 : 0;
+    const age = ageMs(v, now);
+    const stalePenalty =
+      age == null ? 15 : age > STALE_MS ? 60 : age > 60 * 60 * 1000 ? 10 : 0;
+    const quality = -((v.marketScore ?? 0) * 0.5);
+    const volume = -Math.log10(Math.max(v.volume24h, 1)) * 0.25;
+    return pricePenalty + depthPenalty + stalePenalty + quality + volume;
   }
-  const floor = Math.max(100_000, top.volume24h * 0.45);
-  const major =
-    ranked.find((v) => isMajor(v) && v.volume24h >= floor) ??
-    ranked.find((v) => v.kind === "cex" && v.volume24h >= 100_000);
-  return major ?? top;
+
+  return [...candidates].sort(
+    (a, b) => score(a) - score(b) || (b.depthUsd ?? 0) - (a.depthUsd ?? 0),
+  )[0];
+}
+
+/** Labelled sample prints for the gold walkthrough when market pairs are plan-gated. */
+const DEMO_PRINTS: Record<number, Venue> = {
+  4705: {
+    exchange: "Binance",
+    slug: "binance",
+    pair: "PAXG/USDT",
+    category: "spot",
+    kind: "cex",
+    volume24h: 12_000_000,
+    priceUsd: null,
+    cryptoId: 4705,
+    recommended: false,
+    marketScore: null,
+    depthUsd: 48_200,
+    lastUpdated: null,
+    listed: "demo",
+  },
+  5176: {
+    exchange: "Binance",
+    slug: "binance",
+    pair: "XAUt/USDT",
+    category: "spot",
+    kind: "cex",
+    volume24h: 40_000_000,
+    priceUsd: null,
+    cryptoId: 5176,
+    recommended: false,
+    marketScore: null,
+    depthUsd: 61_000,
+    lastUpdated: null,
+    listed: "demo",
+  },
+};
+
+export function demoVenuesFor(cryptoId: number | null): Venue[] {
+  if (cryptoId == null) return [];
+  const row = DEMO_PRINTS[cryptoId];
+  return row ? [{ ...row }] : [];
 }
 
 /** Top spot prints for one wrapper. Prefer a real CEX if one has volume. */
