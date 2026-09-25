@@ -397,7 +397,7 @@ export async function loadDesk(
         buySymbol: pair.cheap.symbol,
         avoidSymbol: pair.rich.symbol,
         points: hist.points,
-        summary: hist.summary,
+        summary: history,
         endpointsUsed: hist.endpoint ? [hist.endpoint] : [],
       };
     } catch (err) {
