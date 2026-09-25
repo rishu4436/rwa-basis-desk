@@ -454,7 +454,7 @@ export async function loadBoard(ids: string[]): Promise<BoardRow[]> {
             id,
             symbol: d.cluster.rwaSymbols[0] ?? d.cluster.label,
             name: d.cluster.label,
-            action: d.ticket.trap ? "skip" : d.ticket.action,
+            action: d.ticket.action,
             headline: d.ticket.headline,
             buySymbol: d.ticket.buySymbol,
             avoidSymbol: d.ticket.avoidSymbol,

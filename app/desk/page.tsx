@@ -12,7 +12,7 @@ export async function generateMetadata({
   const raw = typeof sp.asset === "string" ? sp.asset.trim() : "";
   const symbol = (raw || "GOLD").toUpperCase();
   const title = `${symbol} wrapper desk`;
-  const description = `Which tokenized ${symbol} wrapper to trade, where to trade it, and whether the gap is real.`;
+  const description = `Cheapest liquid way to own tokenized ${symbol}. Same underlying, different wrappers, an execution-aware ticket.`;
   const url = `${SITE}/desk?asset=${encodeURIComponent(raw || "GOLD")}`;
   return {
     title,

@@ -12,6 +12,16 @@ import {
 import { summarizeHistory } from "./history";
 import { parseVenues, pickPrint, venuesFor } from "./venues";
 import { goldFixture } from "./fixture";
+import {
+  basisOpportunity,
+  basisRead,
+  deskCall,
+  endpointHits,
+  liquidityBars,
+  structureColumns,
+  structureCounts,
+  whyLines,
+} from "./narrative";
 import { parseIssuer, parseTradfiMarkets } from "./issuer";
 import { ouncesPerToken } from "./clusters";
 import {
@@ -425,6 +435,114 @@ describe("fixture desk", () => {
     assert.equal(desk.cluster.id, "gold");
     assert.ok(desk.ticket.headline.length > 0);
     assert.ok(desk.evidence.cmcTimestamp);
+  });
+});
+
+describe("decision narrative", () => {
+  it("puts the liquid wait above the thin gold trap", () => {
+    const desk = goldFixture();
+    const call = deskCall(desk);
+    assert.equal(call.tone, "wait");
+    assert.equal(call.verb, "WAIT");
+    assert.match(call.detail, /Avoid CGO/);
+    assert.match(call.detail, /more than 99% lower volume/);
+    assert.match(call.detail, /inside the 30-day range/);
+
+    const opp = basisOpportunity(desk);
+    assert.equal(opp?.left, "PAXG");
+    assert.equal(opp?.right, "XAUt");
+    assert.ok((opp?.dollar ?? 0) > 0);
+
+    const why = whyLines(desk).join(" ");
+    assert.match(why, /inside the 30-day range/);
+    assert.match(why, /fails the \$1\.00M daily volume floor/);
+    assert.match(why, /Fair value is the volume-weighted price/);
+    assert.match(why, /Coinbase PAXG\/USD/);
+
+    const bars = liquidityBars(desk);
+    assert.equal(bars[0]?.label, "XAUt");
+    assert.equal(bars.find((bar) => bar.label === "CGO")?.thin, true);
+    assert.ok((bars.find((bar) => bar.label === "PAXG")?.widthPct ?? 0) > 50);
+
+    const cols = structureColumns(desk);
+    assert.deepEqual(
+      cols.map((col) => col.symbol),
+      ["PAXG", "XAUt", "CGO"],
+    );
+    assert.equal(cols[2]?.liquidity, "Thin");
+    const counts = structureCounts(desk);
+    assert.equal(counts.liquid, 2);
+    assert.equal(counts.thin, 1);
+
+    const read = basisRead(desk.spread);
+    assert.equal(read.signal, "typical");
+    assert.equal(read.pair, "PAXG vs XAUt");
+    assert.ok(endpointHits(desk.endpointsUsed).every((hit) => hit.live));
+  });
+
+  it("says trade when the wide gap is a 30-day extreme", () => {
+    const scored = applyFairValue(
+      [
+        wrap({
+          symbol: "SPYon",
+          normalizedUsd: 671.75,
+          volume24h: 1_400_000,
+          venues: [],
+        }),
+        wrap({
+          symbol: "SPYX",
+          normalizedUsd: 680.1,
+          volume24h: 1_700_000,
+          venues: [
+            {
+              exchange: "Kraken",
+              slug: "kraken",
+              pair: "SPYX/USD",
+              category: "spot",
+              kind: "cex",
+              volume24h: 900_000,
+              priceUsd: 680.1,
+              cryptoId: 2,
+              recommended: true,
+              marketScore: null,
+              depthUsd: null,
+              lastUpdated: null,
+            },
+          ],
+        }),
+      ],
+      676,
+    );
+    const ticket = buildTicket(scored, 676, 100_000, "share", {
+      venuesBySymbol: { SPYon: [] },
+      history: {
+        leftSymbol: "SPYon",
+        rightSymbol: "SPYX",
+        lastBps: 124,
+        minBps: 10,
+        maxBps: 130,
+        percentile: 96,
+        days: 30,
+        extreme: true,
+      },
+    });
+    const cluster = goldFixture().cluster;
+    const desk = {
+      ...goldFixture(),
+      cluster: { ...cluster, id: "spy", label: "SPY", unit: "share", volumeFloorUsd: 100_000 },
+      fairValueUsd: 676,
+      wrappers: scored,
+      main: scored,
+      dust: [],
+      ticket,
+      spread: null,
+      issuer: null,
+    };
+    assert.equal(deskCall(desk).verb, "TRADE SPYon");
+    const why = whyLines(desk).join(" ");
+    assert.match(why, /SPYon is \$8\.35 cheaper per share than SPYX/);
+    assert.match(why, /96th percentile/);
+    assert.match(why, /unusually wide/);
   });
 });
 

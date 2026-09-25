@@ -14,14 +14,14 @@ export const metadata: Metadata = {
     template: "%s — Basis Desk",
   },
   description:
-    "Which tokenized gold, stock, or ETF wrapper to buy — and where — so you do not overpay or get stuck.",
+    "Find the cheapest liquid way to own the same real-world asset. Basis Desk compares tokenized wrappers, drops thin liquidity, and prints an execution-aware ticket.",
   icons: { icon: "/logo.svg" },
   openGraph: {
     type: "website",
     siteName: "Basis Desk",
     title: "Basis Desk — RWA wrapper relative value",
     description:
-      "Which tokenized wrapper to trade, where, and whether the gap is real.",
+      "Find the cheapest liquid way to own the same real-world asset.",
     url: SITE,
     images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "Basis Desk" }],
   },
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Basis Desk — RWA wrapper relative value",
     description:
-      "Which tokenized wrapper to trade, where, and whether the gap is real.",
+      "Find the cheapest liquid way to own the same real-world asset.",
     images: ["/opengraph-image"],
   },
 };

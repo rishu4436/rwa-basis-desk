@@ -175,6 +175,8 @@ export function goldFixture(): DeskSnapshot {
       "GET /v5/real-world-assets/market-pairs/list",
       "GET /v5/real-world-assets/info",
       "GET /v5/real-world-assets/issuers",
+      "GET /v3/cryptocurrency/quotes/latest",
+      "GET /v2/cryptocurrency/ohlcv/historical",
     ],
     warnings: [
       "Fixture — no CMC_API_KEY. This is a canned Gold desk so the ticket is still visible.",

@@ -6,9 +6,15 @@ import { CatalogModal, hitToWatch } from "@/components/catalog-modal";
 import { LogoMark, LogoWordmark } from "@/components/logo";
 import { formatUsd, wrapperKey, wrapperLabel } from "@/lib/basis";
 import {
+  BasisHistory,
+  DecisionHero,
+  PipelinePanel,
+  StructurePanel,
+  WhyPanel,
+} from "@/components/decision-deck";
+import {
   extraOnNotional,
   formatDelta,
-  NOTIONAL_PRESETS,
   type DisplayUnit,
 } from "@/lib/display";
 import { cmcCurrencyUrl, edgarCompanyUrl } from "@/lib/links";
@@ -17,9 +23,6 @@ import type {
   CatalogHit,
   DeskSnapshot,
   IssuerProfile,
-  SpreadPoint,
-  SpreadSeries,
-  TicketAction,
   TradfiMarket,
   UnderlyingInfo,
   Venue,
@@ -50,32 +53,6 @@ function formatClock(iso: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return iso;
   return `${d.toISOString().slice(0, 19).replace("T", " ")} UTC`;
 }
-
-const ACTION: Record<
-  TicketAction,
-  { label: string; tone: string; chip: string }
-> = {
-  buy: {
-    label: "Buy",
-    tone: "from-emerald-500/15 to-transparent border-emerald-500/25",
-    chip: "bg-emerald-500/15 text-emerald-300 border-emerald-500/25",
-  },
-  skip: {
-    label: "Skip trap",
-    tone: "from-rose-500/15 to-transparent border-rose-500/25",
-    chip: "bg-rose-500/15 text-rose-300 border-rose-500/25",
-  },
-  wait: {
-    label: "No trade",
-    tone: "from-white/5 to-transparent border-white/10",
-    chip: "bg-white/[0.08] text-white/70 border-white/[0.12]",
-  },
-  "only-one": {
-    label: "One wrapper",
-    tone: "from-white/5 to-transparent border-white/10",
-    chip: "bg-white/[0.08] text-white/70 border-white/[0.12]",
-  },
-};
 
 export default function Page() {
   const [clusterId, setClusterId] = useState("gold");
@@ -388,6 +365,25 @@ export default function Page() {
             <SkeletonDash />
           ) : desk ? (
             <>
+              <DecisionHero
+                desk={desk}
+                unit={unit}
+                notional={notional}
+                onNotional={changeNotional}
+              />
+              <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-12">
+                <div className="xl:col-span-5">
+                  <WhyPanel desk={desk} />
+                </div>
+                <div className="xl:col-span-7">
+                  <BasisHistory
+                    spread={desk.spread}
+                    unit={unit}
+                    fairUsd={desk.fairValueUsd}
+                  />
+                </div>
+              </div>
+              <StructurePanel desk={desk} />
               <WatchBoard
                 rows={board}
                 loading={boardLoading}
@@ -400,26 +396,6 @@ export default function Page() {
                   saveActiveId(id);
                 }}
               />
-              <KpiRow
-                desk={desk}
-                unit={unit}
-                notional={notional}
-                onNotional={changeNotional}
-              />
-
-              <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-12">
-                <TicketCard
-                  desk={desk}
-                  unit={unit}
-                  notional={notional}
-                  className="xl:col-span-7"
-                />
-                <SpreadCard
-                  spread={desk.spread}
-                  unit={unit}
-                  className="xl:col-span-5"
-                />
-              </div>
 
               <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-12">
                 <section className="card overflow-hidden xl:col-span-8">
@@ -483,9 +459,9 @@ export default function Page() {
                   <IssuerCard issuer={desk.issuer} />
                   <TradfiCard markets={desk.tradfiMarkets} />
                   <GuideCard unit={unit} assetUnit={desk.cluster.unit} />
-                  <EvidenceCard desk={desk} />
                 </aside>
               </div>
+              <PipelinePanel desk={desk} />
             </>
           ) : null}
         </main>
@@ -789,7 +765,7 @@ function WatchBoard({
   const maxGap = Math.max(...ranked.map((r) => Math.abs(r.spreadBps ?? 0)), 1);
 
   return (
-    <section className="card mb-4 overflow-hidden">
+    <section className="card mt-4 overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3 sm:px-5">
         <div>
           <h2 className="text-sm font-medium text-white">Leaderboard</h2>
@@ -951,343 +927,6 @@ function WatchBoard({
   );
 }
 
-function KpiRow({
-  desk,
-  unit,
-  notional,
-  onNotional,
-}: {
-  desk: DeskSnapshot;
-  unit: DisplayUnit;
-  notional: number;
-  onNotional: (n: number) => void;
-}) {
-  const t = desk.ticket;
-  const skip = Boolean(t.trap);
-  const liquidBps = t.history?.lastBps ?? t.spreadBps;
-  const gapBps = skip ? t.trap?.spreadBps : t.spreadBps;
-  const gapUsd = skip ? t.trap?.dollarGap : t.dollarGap;
-  const extra =
-    gapBps != null ? extraOnNotional(Math.abs(gapBps), notional) : null;
-  const items = [
-    {
-      label: "Fair value",
-      value:
-        desk.fairValueUsd != null
-          ? `$${desk.fairValueUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
-          : "—",
-      hint:
-        desk.averageTokenizedPrice != null
-          ? `per ${desk.cluster.unit} · CMC avg $${desk.averageTokenizedPrice.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
-          : `per ${desk.cluster.unit}`,
-    },
-    {
-      label: "Liquid gap",
-      value: formatDelta(liquidBps, unit, desk.fairValueUsd),
-      hint:
-        unit === "bps"
-          ? "1% = 100 bps"
-          : t.history
-            ? `${t.history.leftSymbol} vs ${t.history.rightSymbol}`
-            : "across the liquid book",
-    },
-    {
-      label: skip ? "Trap extra" : "Gap",
-      value: gapUsd != null ? `$${Math.abs(gapUsd).toFixed(2)}` : "—",
-      hint: `per ${desk.cluster.unit}${skip && t.trap ? ` · ${t.trap.symbol}` : t.avoidSymbol ? ` · ${t.avoidSymbol}` : ""}`,
-      accent: skip ? "text-rose-300" : "",
-    },
-    {
-      label: skip ? `Looks cheap on $${(notional / 1000).toFixed(0)}k` : `On $${(notional / 1000).toFixed(0)}k buy`,
-      value: extra != null ? `$${extra.toFixed(0)}` : "—",
-      hint: skip ? "discount you cannot exit" : "extra if you pick the rich wrapper",
-      accent: extra && extra > 0 ? "text-rose-300" : "",
-    },
-  ];
-  return (
-    <div>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="text-[11px] uppercase tracking-[0.16em] text-white/35">
-          Position size
-        </span>
-        {NOTIONAL_PRESETS.map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => onNotional(n)}
-            className={`rounded-full border px-2.5 py-0.5 font-mono text-[11px] ${
-              notional === n
-                ? "border-white/30 bg-white/10 text-white"
-                : "border-white/10 text-white/40 hover:text-white"
-            }`}
-          >
-            ${n >= 1000 ? `${n / 1000}k` : n}
-          </button>
-        ))}
-      </div>
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {items.map((k) => (
-          <div key={k.label} className="card px-4 py-3">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-white/35">
-              {k.label}
-            </p>
-            <p
-              className={`mt-2 font-mono text-xl tracking-tight num ${k.accent ?? "text-white"}`}
-            >
-              {k.value}
-            </p>
-            <p className="mt-1 text-[11px] text-white/35">{k.hint}</p>
-          </div>
-        ))}
-      </section>
-    </div>
-  );
-}
-
-function TicketCard({
-  desk,
-  unit,
-  notional,
-  className = "",
-}: {
-  desk: DeskSnapshot;
-  unit: DisplayUnit;
-  notional: number;
-  className?: string;
-}) {
-  const t = desk.ticket;
-  const look = ACTION[t.action];
-  const extra =
-    t.spreadBps != null ? extraOnNotional(Math.abs(t.spreadBps), notional) : null;
-  const trapExtra =
-    t.trap?.spreadBps != null
-      ? extraOnNotional(Math.abs(t.trap.spreadBps), notional)
-      : null;
-  return (
-    <section
-      className={`card relative overflow-hidden bg-gradient-to-br ${look.tone} p-5 sm:p-6 ${className}`}
-    >
-      {t.trap && t.action !== "skip" && (
-        <div className="mb-4 rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs leading-5 text-rose-100">
-          <span className="font-medium text-rose-300">
-            Trap · {t.trap.symbol}
-          </span>
-          {" — "}
-          looks cheaper (${formatUsd(t.trap.volume24h)} / day) but you probably
-          cannot exit
-          {trapExtra != null && trapExtra >= 1
-            ? ` · $${trapExtra.toFixed(0)} on a $${notional.toLocaleString()} ticket`
-            : ""}
-          .
-        </div>
-      )}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <span
-          className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wider ${look.chip}`}
-        >
-          {look.label}
-        </span>
-        <div className="flex flex-wrap gap-2 font-mono text-xs">
-          {t.buySymbol && (
-            <span className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
-              trade {t.buySymbol}
-            </span>
-          )}
-          {t.avoidSymbol && (
-            <span className="rounded-md border border-rose-500/20 bg-rose-500/10 px-2 py-0.5 text-rose-300">
-              skip {t.avoidSymbol}
-            </span>
-          )}
-          {t.trap && t.action !== "skip" && (
-            <span className="rounded-md border border-rose-500/20 bg-rose-500/10 px-2 py-0.5 text-rose-300">
-              trap {t.trap.symbol}
-            </span>
-          )}
-        </div>
-      </div>
-      <h2 className="mt-4 max-w-2xl text-2xl font-semibold leading-snug tracking-tight text-white sm:text-[28px]">
-        {t.headline}
-      </h2>
-      <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">
-        {t.detail.split(/(?<=\.)\s+/)[0]}
-      </p>
-      {t.dollarGap != null && t.action !== "skip" && (
-        <p className="mt-4 font-mono text-2xl text-white num">
-          {formatDelta(t.spreadBps, unit, desk.fairValueUsd)}
-          <span className="ml-2 text-sm text-white/40">
-            {unit === "usd"
-              ? `per ${desk.cluster.unit} · liquid book`
-              : unit === "pct"
-                ? "cheaper / richer"
-                : "· 100 bps = 1%"}
-          </span>
-        </p>
-      )}
-      {extra != null && extra >= 1 && t.action !== "skip" && (
-        <p className="mt-1 text-sm text-white/50">
-          On a ${notional.toLocaleString()} buy that is about{" "}
-          <span className="text-rose-300">${extra.toFixed(0)}</span> extra.
-        </p>
-      )}
-      {t.action === "skip" && trapExtra != null && trapExtra >= 1 && (
-        <p className="mt-4 text-sm text-white/50">
-          On ${notional.toLocaleString()} that looks like a{" "}
-          <span className="text-rose-300">${trapExtra.toFixed(0)}</span> discount
-          — you probably cannot sell.
-        </p>
-      )}
-      {t.history && (
-        <div className="mt-5 grid grid-cols-3 gap-3 border-t border-white/[0.06] pt-4 font-mono text-xs">
-          <Mini
-            label="Today"
-            value={formatDelta(t.history.lastBps, unit, desk.fairValueUsd)}
-          />
-          <Mini
-            label="30d range"
-            value={`${formatDelta(t.history.minBps, unit, desk.fairValueUsd)} → ${formatDelta(t.history.maxBps, unit, desk.fairValueUsd)}`}
-          />
-          <Mini
-            label="Unusual?"
-            value={t.history.extreme ? "Yes — wide" : "No — typical"}
-          />
-        </div>
-      )}
-    </section>
-  );
-}
-
-function Mini({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-[10px] uppercase tracking-wider text-white/35">{label}</p>
-      <p className="mt-1 text-white/80 num">{value}</p>
-    </div>
-  );
-}
-
-function SpreadCard({
-  spread,
-  unit,
-  className = "",
-}: {
-  spread: SpreadSeries | null;
-  unit: DisplayUnit;
-  className?: string;
-}) {
-  const points = spread?.points.filter((p) => p.bps != null) ?? [];
-  return (
-    <section className={`card flex flex-col p-5 ${className}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-medium text-white">30-day gap</h2>
-          <p className="mt-0.5 font-mono text-[11px] text-white/40">
-            {spread?.avoidSymbol && spread.buySymbol
-              ? `${spread.avoidSymbol} − ${spread.buySymbol}`
-              : "Need two liquid wrappers"}
-          </p>
-        </div>
-        {spread?.summary && (
-          <span
-            className={`rounded-full border px-2 py-0.5 text-[11px] ${
-              spread.summary.extreme
-                ? "border-rose-500/30 text-rose-300"
-                : "border-white/10 text-white/45"
-            }`}
-          >
-            {spread.summary.extreme ? "Unusual" : "Typical"}
-          </span>
-        )}
-      </div>
-      <div className="mt-4 flex-1">
-        {points.length < 2 ? (
-          <p className="text-sm text-white/40">Waiting on history for a pair.</p>
-        ) : (
-          <SpreadChart points={points} unit={unit} />
-        )}
-      </div>
-    </section>
-  );
-}
-
-function pointValue(p: SpreadPoint, unit: DisplayUnit): number | null {
-  if (unit === "usd") {
-    if (p.avoidClose != null && p.buyClose != null) return p.avoidClose - p.buyClose;
-    return null;
-  }
-  if (p.bps == null) return null;
-  return unit === "pct" ? p.bps / 100 : p.bps;
-}
-
-function SpreadChart({
-  points,
-  unit,
-}: {
-  points: SpreadPoint[];
-  unit: DisplayUnit;
-}) {
-  const vals = points
-    .map((p) => pointValue(p, unit))
-    .filter((n): n is number => n != null);
-  if (vals.length < 2) return null;
-  const w = 640;
-  const h = 200;
-  const padX = 8;
-  const padY = 22;
-  const min = Math.min(...vals, 0);
-  const max = Math.max(...vals, 0);
-  const span = max - min || 1;
-  const xy = vals.map((v, i) => {
-    const x = padX + (i / Math.max(vals.length - 1, 1)) * (w - padX * 2);
-    const y = padY + (1 - (v - min) / span) * (h - padY * 2);
-    return { x, y, v };
-  });
-  const line = xy
-    .map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`)
-    .join(" ");
-  const last = xy[xy.length - 1];
-  const zeroY = padY + (1 - (0 - min) / span) * (h - padY * 2);
-  const area = `${line} L${last.x.toFixed(1)},${zeroY.toFixed(1)} L${xy[0].x.toFixed(1)},${zeroY.toFixed(1)} Z`;
-  const fmt = (n: number) =>
-    unit === "usd"
-      ? `$${n.toFixed(1)}`
-      : unit === "pct"
-        ? `${n.toFixed(2)}%`
-        : n.toFixed(1);
-
-  return (
-    <div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="h-44 w-full">
-        <defs>
-          <linearGradient id="spreadFill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#e0b44a" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="#e0b44a" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <line
-          x1={padX}
-          x2={w - padX}
-          y1={zeroY}
-          y2={zeroY}
-          stroke="rgba(255,255,255,0.12)"
-          strokeDasharray="4 4"
-        />
-        <path d={area} fill="url(#spreadFill)" />
-        <path d={line} fill="none" stroke="#e0b44a" strokeWidth="2" />
-        <circle cx={last.x} cy={last.y} r="3.5" fill="#e0b44a" />
-        <text x={padX} y={14} fill="rgba(255,255,255,0.35)" fontSize="10" fontFamily="ui-monospace">
-          {fmt(max)}
-        </text>
-        <text x={padX} y={h - 4} fill="rgba(255,255,255,0.35)" fontSize="10" fontFamily="ui-monospace">
-          {fmt(min)}
-        </text>
-      </svg>
-      <div className="mt-1 flex justify-between font-mono text-[10px] text-white/30">
-        <span>{points[0]?.date?.slice(5)}</span>
-        <span>{points[points.length - 1]?.date?.slice(5)}</span>
-      </div>
-    </div>
-  );
-}
 
 function WrapperTable({
   desk,
@@ -1688,56 +1327,16 @@ function TradfiCard({ markets }: { markets: TradfiMarket[] }) {
   );
 }
 
-function EvidenceCard({ desk }: { desk: DeskSnapshot }) {
-  const endpoints = useMemo(
-    () => [...new Set(desk.endpointsUsed)],
-    [desk.endpointsUsed],
-  );
-  return (
-    <section className="card p-5">
-      <h2 className="text-sm font-medium text-white">API evidence</h2>
-      <p className="mt-1 font-mono text-[11px] text-white/40">
-        map {desk.evidence.rwaMapCount} · quotes {desk.evidence.rwaQuoteCount} · crypto{" "}
-        {desk.evidence.cryptoQuoteCount} · pairs {desk.evidence.pairCount}
-      </p>
-      <dl className="mt-3 space-y-1 font-mono text-[11px] text-white/40">
-        <div className="flex justify-between gap-3">
-          <dt>CMC status</dt>
-          <dd>{formatClock(desk.evidence.cmcTimestamp)}</dd>
-        </div>
-        <div className="flex justify-between gap-3">
-          <dt>quotes last_updated</dt>
-          <dd>{formatClock(desk.evidence.lastUpdated)}</dd>
-        </div>
-        <div className="flex justify-between gap-3">
-          <dt>desk generated</dt>
-          <dd>{formatClock(desk.generatedAt)}</dd>
-        </div>
-      </dl>
-      <ul className="mt-3 space-y-1 font-mono text-[11px] text-white/40">
-        {endpoints.map((e) => (
-          <li key={e}>{e.replace("GET ", "")}</li>
-        ))}
-      </ul>
-      <p className="mt-4 text-[11px] leading-5 text-white/30">
-        Wrapper vs wrapper, not vs NAV. Not investment advice.
-      </p>
-    </section>
-  );
-}
 
 function SkeletonDash() {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="card skeleton h-24" />
-        ))}
-      </div>
+      <div className="card skeleton h-72" />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <div className="card skeleton h-56 xl:col-span-7" />
-        <div className="card skeleton h-56 xl:col-span-5" />
+        <div className="card skeleton h-64 xl:col-span-5" />
+        <div className="card skeleton h-64 xl:col-span-7" />
       </div>
+      <div className="card skeleton h-48" />
     </div>
   );
 }

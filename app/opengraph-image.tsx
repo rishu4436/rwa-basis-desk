@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "Basis Desk — which tokenized wrapper to trade";
+export const alt = "Basis Desk — cheapest liquid way to own the same real-world asset";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -64,18 +64,18 @@ export default function OpenGraphImage() {
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div
             style={{
-              fontSize: 64,
-              lineHeight: 1.1,
+              fontSize: 52,
+              lineHeight: 1.12,
               color: "#ffffff",
               fontWeight: 600,
               letterSpacing: "-0.03em",
-              maxWidth: 980,
+              maxWidth: 1000,
             }}
           >
-            Same gold. Three tokens. Three prices.
+            Find the cheapest liquid way to own the same real-world asset.
           </div>
-          <div style={{ fontSize: 28, color: "rgba(255,255,255,0.55)", maxWidth: 820 }}>
-            Which wrapper to trade, where, and whether the gap is real.
+          <div style={{ fontSize: 26, color: "rgba(255,255,255,0.55)", maxWidth: 860 }}>
+            Same underlying. Different wrappers. Different liquidity.
           </div>
         </div>
         <div

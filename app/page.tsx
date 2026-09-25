@@ -33,12 +33,15 @@ export default function Landing() {
             CoinMarketCap API · Real World Assets
           </p>
           <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-white sm:text-5xl sm:leading-[1.1]">
-            Same gold. Three tokens. Three prices.
+            Find the cheapest liquid way to own the same real-world asset.
           </h1>
-          <p className="mt-5 max-w-xl text-base leading-7 text-white/55">
-            Basis Desk tells you which tokenized wrapper to trade, where to
-            trade it, and whether the gap is real — in dollars, percent, or
-            bps. Built on the CoinMarketCap RWA API.
+          <p className="mt-5 max-w-xl text-lg text-white/70">
+            Same underlying. Different wrappers. Different liquidity.
+          </p>
+          <p className="mt-4 max-w-xl text-base leading-7 text-white/55">
+            Basis Desk compares tokenized representations of the same RWA,
+            filters out untradeable liquidity, measures wrapper basis, and
+            produces an execution-aware trade ticket.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link
@@ -61,15 +64,15 @@ export default function Landing() {
             {[
               {
                 k: "The trap",
-                t: "A thin gold token looks $50 cheaper per ounce. Volume is $4k a day. You cannot exit.",
+                t: "A thin token can look cheaper per ounce. If the day volume is a few thousand dollars, you cannot exit.",
               },
               {
-                k: "The ticket",
-                t: "Skip that wrapper. Trade XAUt. Print is a real CEX pair with size.",
+                k: "The call",
+                t: "Trade, skip, or wait. Wait is the default unless the liquid gap is wide and outside its 30-day range.",
               },
               {
-                k: "The units",
-                t: "New users stay on $. Traders can switch to % or bps. Same gap, three languages.",
+                k: "The why",
+                t: "Fair value uses liquid wrappers only. The panel under the call names the venue, the trap, and the basis.",
               },
             ].map((card) => (
               <div key={card.k} className="card p-5">
@@ -85,8 +88,8 @@ export default function Landing() {
         <section className="mx-auto max-w-5xl px-4 pb-16 sm:px-6">
           <h2 className="text-xl font-semibold text-white">The desk</h2>
           <p className="mt-2 max-w-xl text-sm text-white/45">
-            Trap warning, liquid-book ticket, venues, and the 30-day gap — Gold
-            on the left, SPY on the right.
+            The call sits on top. The why, the 30-day basis, and the wrapper
+            structure sit underneath — Gold on the left, SPY on the right.
           </p>
           <div className="mt-6 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#11141a]">
             <img
@@ -118,8 +121,8 @@ export default function Landing() {
               },
               {
                 n: "02",
-                t: "Read the ticket",
-                d: "Trade / skip / wait, in dollars per unit and on a $10k buy. Illiquid names go in the dust drawer.",
+                t: "Read the call",
+                d: "Trade, skip, or wait — in dollars per unit and on a $10k buy. The why panel shows the rule that fired.",
               },
               {
                 n: "03",
