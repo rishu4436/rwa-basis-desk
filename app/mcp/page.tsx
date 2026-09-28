@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { JudgeShell } from "@/components/judge-shell";
-import { listTools } from "@/lib/mcp";
+import { listTools } from "@/lib/desk-meta";
 
 export const metadata: Metadata = {
   title: "MCP",

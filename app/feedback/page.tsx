@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { JudgeShell } from "@/components/judge-shell";
-import { API_FRICTION } from "@/lib/mcp";
+import { API_FRICTION } from "@/lib/desk-meta";
 
 export const metadata: Metadata = {
   title: "API feedback",

@@ -7,7 +7,7 @@ Find the cheapest liquid way to own the same real-world asset.
 
 Same underlying. Different wrappers. Different liquidity. Basis Desk compares tokenized representations of one RWA, filters out untradeable size, measures wrapper basis, and prints an execution-aware ticket: trade, skip, or wait.
 
-This is not a clone of [coinmarketcap.com/real-world-assets](https://coinmarketcap.com/real-world-assets/). CMC lists tokens. The desk **clusters by underlying**, **normalizes units**, **prices the wrapper spread**, and prints a **ticket**.
+CMC lists each token. The desk clusters by underlying, normalizes units, prices the wrapper spread, and prints a ticket.
 
 ## What a user gets
 

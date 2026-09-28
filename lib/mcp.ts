@@ -1,78 +1,10 @@
 import { searchCatalog } from "./catalog";
 import { loadBoard, loadDesk } from "./desk";
+import { validBoardIds, validCluster } from "./guard";
+import { API_FRICTION, listTools } from "./desk-meta";
 import type { BoardRow, DeskSnapshot, TicketAction } from "./types";
 
-export const API_FRICTION = [
-  "market-pairs/list returns error_code 1006 on the hackathon Startup plan. The desk keeps the basis call and labels venue coverage as plan-gated.",
-  "No underlying NAV or exchange print on the RWA family. The liquid reference is wrapper versus wrapper. Any Yahoo print is a labeled benchmark and is not mixed into the ticket.",
-  "No RWA history endpoint. 30-day spread joins each wrapper crypto_id into /v2/cryptocurrency/ohlcv/historical.",
-  "Gold units are inconsistent (troy ounce and gram). Gram tokens are scaled before any price sort.",
-  "One underlying can be many rwa_ids. Clustering by ticker family is required.",
-  "quotes/latest data is sometimes keyed rwa_assets and sometimes assets. Parsers accept both.",
-] as const;
-
-const TOOLS = [
-  {
-    name: "desk_ticket",
-    description:
-      "Prefer, Skip, or Wait for one real-world asset. Dollars, named trap, liquid reference, and labeled benchmark.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        asset: {
-          type: "string",
-          description: "TradFi ticker such as GOLD, NVDA, SPY, AAPL.",
-        },
-      },
-      required: ["asset"],
-    },
-  },
-  {
-    name: "desk_board",
-    description:
-      "Ranked Prefer / Skip / Wait calls for up to 8 tickers. Prefer and Skip sort ahead of Wait.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        assets: {
-          type: "array",
-          items: { type: "string" },
-          description: "Tickers, max 8.",
-        },
-      },
-      required: ["assets"],
-    },
-  },
-  {
-    name: "desk_search",
-    description: "Find a tokenized real-world asset by tradfi ticker or name.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "desk_evidence",
-    description:
-      "Endpoints used on a desk load, plus the API frictions this product hit.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        asset: {
-          type: "string",
-          description: "Optional ticker. Omit for the friction list only.",
-        },
-      },
-    },
-  },
-] as const;
-
-export function listTools() {
-  return TOOLS;
-}
+export { API_FRICTION, listTools };
 
 function callName(action: TicketAction): string {
   if (action === "buy") return "Prefer";
@@ -125,19 +57,19 @@ export async function callTool(
 ): Promise<unknown> {
   if (name === "desk_ticket") {
     const asset = String(args.asset ?? "").trim();
-    if (!asset) throw new Error("asset is required");
+    if (!validCluster(asset)) throw new Error("invalid asset");
     return ticketPayload(await loadDesk(asset));
   }
   if (name === "desk_board") {
     const raw = Array.isArray(args.assets) ? args.assets : [];
     const assets = raw.map((a) => String(a).trim()).filter(Boolean).slice(0, 8);
-    if (!assets.length) throw new Error("assets is required");
+    if (!assets.length || !validBoardIds(assets)) throw new Error("invalid assets");
     const rows = await loadBoard(assets);
     return { rows: rows.map(boardPayload) };
   }
   if (name === "desk_search") {
     const query = String(args.query ?? "").trim();
-    if (!query) throw new Error("query is required");
+    if (query.length < 1 || query.length > 40) throw new Error("invalid query");
     const hits = await searchCatalog(query);
     return {
       hits: hits.slice(0, 12).map((h) => ({
@@ -152,6 +84,7 @@ export async function callTool(
   if (name === "desk_evidence") {
     const asset = String(args.asset ?? "").trim();
     if (!asset) return { friction: API_FRICTION };
+    if (!validCluster(asset)) throw new Error("invalid asset");
     const desk = await loadDesk(asset);
     return {
       asset: desk.cluster.rwaSymbols[0] ?? asset,

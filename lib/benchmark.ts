@@ -72,12 +72,24 @@ async function fetchYahooPrint(
   return { price, asOf };
 }
 
+const PRINT_SYMBOL = /^[A-Z0-9.]{1,10}$/;
+
+export function printSymbol(raw: string): string | null {
+  const symbol = raw.trim().toUpperCase();
+  if (!PRINT_SYMBOL.test(symbol) || symbol.includes("..")) return null;
+  return symbol;
+}
+
 /** Equity and ETF prints only. Commodities stay unlabeled rather than guessed. */
 export async function loadBenchmark(
   cluster: ClusterDef,
   liquidUsd: number | null,
 ): Promise<UnderlyingBenchmark> {
-  const symbol = (cluster.rwaSymbols[0] ?? cluster.label).toUpperCase();
+  const raw = (cluster.rwaSymbols[0] ?? cluster.label).toUpperCase();
+  const symbol = printSymbol(raw);
+  if (!symbol) {
+    return emptyBenchmark(raw.slice(0, 12), "Underlying print unavailable.");
+  }
   if (cluster.assetClass !== "equity" && cluster.assetClass !== "etf") {
     return emptyBenchmark(
       symbol,

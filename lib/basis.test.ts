@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { emptyBenchmark, premiumVsPrint } from "./benchmark";
+import { emptyBenchmark, premiumVsPrint, printSymbol } from "./benchmark";
 import { handleRpc, listTools } from "./mcp";
 import {
   applyFairValue,
@@ -1088,6 +1088,9 @@ describe("benchmark and mcp", () => {
     assert.equal(blank.source, "none");
     assert.equal(goldFixture().benchmark.source, "none");
     assert.equal(goldFixture().benchmark.priceUsd, null);
+    assert.equal(printSymbol("NVDA"), "NVDA");
+    assert.equal(printSymbol("../etc"), null);
+    assert.equal(printSymbol("BRK.B"), "BRK.B");
   });
 
   it("lists tools and returns API friction without a live desk", async () => {
@@ -1118,6 +1121,13 @@ describe("benchmark and mcp", () => {
       method: "nope",
     });
     assert.equal((missing?.error as { code: number }).code, -32601);
+    const bad = await handleRpc({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: { name: "desk_ticket", arguments: { asset: "../secret" } },
+    });
+    assert.match(String((bad?.error as { message: string }).message), /invalid asset/);
   });
 });
 
