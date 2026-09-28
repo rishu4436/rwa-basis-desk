@@ -13,6 +13,7 @@ import { asArray, cmcGet, cmcGetLive, hasApiKey, isPlanGate, num, usdQuote } fro
 import { goldFixture } from "./fixture";
 import { fetchCoreDiscountHistory, rankAgainstHistory } from "./history";
 import { loadIssuer, parseTradfiMarkets } from "./issuer";
+import { emptyBenchmark, loadBenchmark } from "./benchmark";
 import { loadUnderlying } from "./underlying";
 import { demoVenuesFor, pairCountFor, parseVenues, venuesFor } from "./venues";
 import type {
@@ -419,6 +420,14 @@ export async function loadDesk(
     history,
   });
 
+  let benchmark = emptyBenchmark(
+    (cluster.rwaSymbols[0] ?? cluster.label).toUpperCase(),
+    "Benchmark skipped on the lite board load.",
+  );
+  if (!lite) {
+    benchmark = await loadBenchmark(cluster, fair);
+  }
+
   let underlying: UnderlyingInfo | null = null;
   if (!lite && primaryRwaId != null) {
     try {
@@ -478,6 +487,7 @@ export async function loadDesk(
     ticket,
     spread,
     underlying,
+    benchmark,
     endpointsUsed: [...new Set(endpointsUsed)],
     warnings,
     evidence: {

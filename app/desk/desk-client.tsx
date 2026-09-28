@@ -400,6 +400,14 @@ export default function Page() {
                 </div>
               </div>
               <StructurePanel desk={desk} />
+              <CallsStrip
+                rows={board}
+                loading={boardLoading}
+                onOpen={(id) => {
+                  setClusterId(id);
+                  saveActiveId(id);
+                }}
+              />
               <WatchBoard
                 rows={board}
                 loading={boardLoading}
@@ -820,6 +828,76 @@ function UnitToggle({
         </button>
       ))}
     </div>
+  );
+}
+
+function callLabel(action: BoardRow["action"]): string {
+  if (action === "buy") return "Prefer";
+  if (action === "skip") return "Skip";
+  if (action === "wait") return "Wait";
+  return "One";
+}
+
+function CallsStrip({
+  rows,
+  loading,
+  onOpen,
+}: {
+  rows: BoardRow[];
+  loading: boolean;
+  onOpen: (id: string) => void;
+}) {
+  const prefers = rows.filter((r) => r.action === "buy" && !r.error);
+  const skips = rows.filter((r) => r.action === "skip" && !r.error);
+  const featured = prefers.length ? prefers : skips;
+  const tone = prefers.length ? "Prefer" : skips.length ? "Skip" : "Wait";
+  return (
+    <section className="card mt-4 overflow-hidden">
+      <div className="flex flex-wrap items-end justify-between gap-3 px-4 py-3 sm:px-5">
+        <div>
+          <h2 className="text-sm font-medium text-white">Live calls</h2>
+          <p className="mt-0.5 text-xs text-white/40">
+            {loading
+              ? "Scanning the watchlist…"
+              : prefers.length
+                ? `${prefers.length} Prefer on the pinned book.`
+                : "No core wrapper is a 30-day extreme right now. Wait is the call."}
+          </p>
+        </div>
+        <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-gold-400">
+          {tone}
+        </span>
+      </div>
+      {featured.length > 0 && (
+        <ul className="grid gap-px border-t border-white/[0.06] bg-white/[0.04] sm:grid-cols-2">
+          {featured.slice(0, 4).map((row) => (
+            <li key={row.id}>
+              <button
+                type="button"
+                onClick={() => onOpen(row.id)}
+                className="flex w-full items-center justify-between gap-3 bg-[#0b0d10] px-4 py-3 text-left hover:bg-white/[0.03]"
+              >
+                <span>
+                  <span className="font-mono text-sm text-white">{row.symbol}</span>
+                  <span className="ml-2 text-[11px] uppercase tracking-wider text-emerald-300">
+                    {callLabel(row.action)}
+                    {row.buySymbol ? ` ${row.buySymbol}` : ""}
+                  </span>
+                  {row.trapSymbol && (
+                    <span className="ml-2 text-[11px] text-rose-300">trap {row.trapSymbol}</span>
+                  )}
+                </span>
+                <span className="font-mono text-xs text-white/70">
+                  {row.dollarGap != null
+                    ? `${row.dollarGap > 0 ? "+" : row.dollarGap < 0 ? "−" : ""}$${Math.abs(row.dollarGap).toFixed(2)}`
+                    : "—"}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

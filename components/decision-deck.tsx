@@ -115,6 +115,22 @@ export function DecisionHero({
               ? ` · CMC average ${money(desk.averageTokenizedPrice)}`
               : ""}
           </p>
+          <p className="mt-2 text-xs leading-5 text-white/55">
+            {desk.benchmark.priceUsd != null ? (
+              <>
+                Benchmark {desk.benchmark.symbol}{" "}
+                <span className="font-mono text-white/80">
+                  {money(desk.benchmark.priceUsd)}
+                </span>
+                {desk.benchmark.premiumBps != null && desk.liquidReferenceUsd != null
+                  ? ` · liquid core ${formatSignedBps(desk.benchmark.premiumBps)} vs print (${signedDollar(desk.benchmark.dollarGap ?? 0)} / ${unitName})`
+                  : ""}
+                <span className="text-white/35"> · Yahoo · not the ticket</span>
+              </>
+            ) : (
+              <span className="text-white/40">{desk.benchmark.note}</span>
+            )}
+          </p>
           <p className="mt-2 text-[11px] leading-5 text-white/35">
             Desk policy · wide ≥ {DESK_POLICY.wideBasisBps} bps under the reference ·
             extreme ≥ {DESK_POLICY.extremePercentile}th percentile of 30 daily closes ·
@@ -618,6 +634,38 @@ export function PipelinePanel({ desk }: { desk: DeskSnapshot }) {
           {desk.evidence.rwaMapCount} · quotes {desk.evidence.rwaQuoteCount} · crypto{" "}
           {desk.evidence.cryptoQuoteCount} · pairs {desk.evidence.pairCount}
         </p>
+        <dl className="mt-4 grid gap-2 text-[11px] text-white/55 sm:grid-cols-2">
+          <div>
+            <dt className="uppercase tracking-wider text-white/30">Ticket inputs</dt>
+            <dd className="mt-1 font-mono text-white/70">
+              core {desk.main.length} · floor ${desk.cluster.volumeFloorUsd.toLocaleString("en-US")} · lead ≥{" "}
+              {Math.round(DESK_POLICY.leadVolumeShare * 100)}% · wide ≥ {DESK_POLICY.wideBasisBps} bps · extreme ≥{" "}
+              {DESK_POLICY.extremePercentile}th
+              {desk.ticket.history?.percentile != null
+                ? ` · today ${desk.ticket.history.percentile}th`
+                : ""}
+              {desk.ticket.trap ? ` · trap ${desk.ticket.trap.symbol}` : ""}
+            </dd>
+          </div>
+          <div>
+            <dt className="uppercase tracking-wider text-white/30">Benchmark</dt>
+            <dd className="mt-1 text-white/70">{desk.benchmark.note}</dd>
+          </div>
+        </dl>
+        <p className="mt-4 flex flex-wrap gap-3 text-[11px]">
+          <a href="/methodology" className="text-gold-400 hover:underline">
+            Methodology
+          </a>
+          <a href="/feedback" className="text-gold-400 hover:underline">
+            API feedback
+          </a>
+          <a href="/mcp" className="text-gold-400 hover:underline">
+            MCP tools
+          </a>
+        </p>
+        {desk.venueCoverage.status === "plan-gated" && (
+          <p className="mt-2 text-[11px] text-white/40">{desk.venueCoverage.detail}</p>
+        )}
       </div>
     </details>
   );

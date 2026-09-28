@@ -59,8 +59,10 @@ DoraHacks: https://dorahacks.io/hackathon/coinmarketcap-api-202609
 1. Public GitHub repo (this project).
 2. Live demo URL (Vercel landing + `/desk`).
 3. ~90s screen recording: Gold ticket → skip illiquid → TRADE wrapper → Binance print → `$/%/bps` → search `AAPL`.
-4. X post: DoraHacks link + demo + video + `#BuildwithCMC`.
-5. BUIDL: named CMC endpoints (see below) + API-feedback note (see below).
+4. X post: DoraHacks BUIDL link + demo + video + `#BuildwithCMC`.
+5. BUIDL: named CMC endpoints (see below) + API-feedback note (see below, also at `/feedback`).
+
+Judge pages: `/methodology` (Prefer / Skip / Wait rules), `/feedback` (API friction), `/mcp` (agent tools). MCP endpoint: `POST /api/mcp` with tools `desk_ticket`, `desk_board`, `desk_search`, `desk_evidence`. The key stays server-side. An equity or ETF desk also shows a Yahoo print as a labeled benchmark. That print is not the liquid reference and does not set the ticket. Gold has no LBMA print on CMC, so the ticket stays wrapper versus wrapper.
 
 ## Read the numbers
 

@@ -169,6 +169,15 @@ export function goldFixture(): DeskSnapshot {
       summary: ticket.history,
       endpointsUsed: [],
     },
+    benchmark: {
+      symbol: "GOLD",
+      priceUsd: null,
+      asOf: null,
+      source: "none",
+      premiumBps: null,
+      dollarGap: null,
+      note: "No LBMA print on CMC. The ticket stays wrapper versus wrapper.",
+    },
     underlying: {
       rwaId: 1,
       name: "Gold",

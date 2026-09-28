@@ -86,6 +86,12 @@ export default function Landing() {
             <a href="#cmc" className={`hover:text-[#F1EEE6] ${focus} rounded-sm`}>
               CMC API
             </a>
+            <Link href="/methodology" className={`hover:text-[#F1EEE6] ${focus} rounded-sm`}>
+              Method
+            </Link>
+            <Link href="/mcp" className={`hover:text-[#F1EEE6] ${focus} rounded-sm`}>
+              MCP
+            </Link>
             <a href={GITHUB} className={`hover:text-[#F1EEE6] ${focus} rounded-sm`}>
               GitHub
             </a>
@@ -110,6 +116,12 @@ export default function Landing() {
           <a href="#cmc" className={`shrink-0 ${focus} rounded-sm`}>
             CMC API
           </a>
+          <Link href="/methodology" className={`shrink-0 ${focus} rounded-sm`}>
+            Method
+          </Link>
+          <Link href="/mcp" className={`shrink-0 ${focus} rounded-sm`}>
+            MCP
+          </Link>
           <a href={GITHUB} className={`shrink-0 ${focus} rounded-sm`}>
             GitHub
           </a>

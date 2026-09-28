@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { emptyBenchmark, premiumVsPrint } from "./benchmark";
+import { handleRpc, listTools } from "./mcp";
 import {
   applyFairValue,
   buildTicket,
@@ -1069,6 +1071,53 @@ describe("plan gate and request guard", () => {
     assert.equal(allowRequest(key, 2, 60_000, 1_000), true);
     assert.equal(allowRequest(key, 2, 60_000, 1_000), false);
     assert.equal(allowRequest(key, 2, 60_000, 61_000), true);
+  });
+});
+
+describe("benchmark and mcp", () => {
+  it("measures the liquid core against a print and refuses a missing one", () => {
+    assert.deepEqual(premiumVsPrint(100, null), {
+      premiumBps: null,
+      dollarGap: null,
+    });
+    const gap = premiumVsPrint(101.5, 100);
+    assert.equal(gap.premiumBps, 150);
+    assert.ok(Math.abs((gap.dollarGap ?? 0) - 1.5) < 1e-9);
+    const blank = emptyBenchmark("GOLD", "No LBMA print on CMC.");
+    assert.equal(blank.priceUsd, null);
+    assert.equal(blank.source, "none");
+    assert.equal(goldFixture().benchmark.source, "none");
+    assert.equal(goldFixture().benchmark.priceUsd, null);
+  });
+
+  it("lists tools and returns API friction without a live desk", async () => {
+    assert.equal(listTools().length, 4);
+    const listed = await handleRpc({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+    });
+    const tools = (listed?.result as { tools: { name: string }[] }).tools;
+    assert.deepEqual(
+      tools.map((tool) => tool.name),
+      ["desk_ticket", "desk_board", "desk_search", "desk_evidence"],
+    );
+    const evidence = await handleRpc({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "desk_evidence", arguments: {} },
+    });
+    const text = (evidence?.result as { content: { text: string }[] }).content[0]
+      .text;
+    assert.match(text, /market-pairs/);
+    assert.match(text, /rwa_assets/);
+    const missing = await handleRpc({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "nope",
+    });
+    assert.equal((missing?.error as { code: number }).code, -32601);
   });
 });
 

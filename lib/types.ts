@@ -177,6 +177,18 @@ export type Ticket = {
   history: HistorySummary | null;
 };
 
+/** Labeled print of the real instrument. Never mixed into the liquid reference. */
+export type UnderlyingBenchmark = {
+  symbol: string;
+  priceUsd: number | null;
+  asOf: string | null;
+  source: "yahoo" | "none";
+  /** Liquid reference minus the print, in bps. Positive means wrappers are richer. */
+  premiumBps: number | null;
+  dollarGap: number | null;
+  note: string;
+};
+
 export type UnderlyingInfo = {
   rwaId: number;
   name: string;
@@ -215,6 +227,8 @@ export type DeskSnapshot = {
   ticket: Ticket;
   spread: SpreadSeries | null;
   underlying: UnderlyingInfo | null;
+  /** TradFi print beside the ticket. Null price means we refused to invent one. */
+  benchmark: UnderlyingBenchmark;
   endpointsUsed: string[];
   warnings: string[];
   evidence: {
