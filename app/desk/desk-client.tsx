@@ -69,6 +69,7 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [dustOpen, setDustOpen] = useState(false);
+  const [quietOpen, setQuietOpen] = useState(false);
   const [unit, setUnit] = useState<DisplayUnit>("usd");
   const [notional, setNotional] = useState(10_000);
   const [board, setBoard] = useState<BoardRow[]>([]);
@@ -285,7 +286,7 @@ export default function Page() {
   const loadingItem = watchlist.find((w) => w.id === clusterId);
   const loadingLabel = loadingItem?.symbol ?? clusterId.toUpperCase();
 
-  const rows = desk?.main?.length ? desk.main : (desk?.wrappers ?? []);
+  const rows = desk?.main ?? [];
   const selectedWrapper =
     rows.find((w) => wrapperKey(w) === selected) ??
     desk?.wrappers.find((w) => wrapperKey(w) === selected) ??
@@ -421,20 +422,51 @@ export default function Page() {
                         Tradeable wrappers
                       </h2>
                       <p className="mt-0.5 text-xs text-white/40">
-                        vs liquid reference in {unit === "usd" ? "dollars" : unit === "pct" ? "percent" : "bps"} · extra on a{" "}
-                        {formatNotional(notional)} buy
+                        Core book versus the liquid reference, in{" "}
+                        {unit === "usd" ? "dollars" : unit === "pct" ? "percent" : "bps"}. Extra on a{" "}
+                        {formatNotional(notional)} buy.
                       </p>
                     </div>
                   </div>
-                  <WrapperTable
-                    desk={desk}
-                    rows={rows}
-                    selected={selected}
-                    onSelect={setSelected}
-                    unit={unit}
-                    notional={notional}
-                    onNotional={changeNotional}
-                  />
+                  {rows.length ? (
+                    <WrapperTable
+                      desk={desk}
+                      rows={rows}
+                      selected={selected}
+                      onSelect={setSelected}
+                      unit={unit}
+                      notional={notional}
+                      onNotional={changeNotional}
+                    />
+                  ) : (
+                    <p className="px-4 py-6 text-sm text-white/45 sm:px-5">
+                      Nothing clears the core. A wrapper needs the volume floor and
+                      at least 10% of the lead name.
+                    </p>
+                  )}
+                  {desk.accrual?.length > 0 && (
+                    <div className="border-t border-white/[0.06]">
+                      <div className="px-4 py-3 sm:px-5">
+                        <p className="text-xs text-white/70">
+                          Total return · Ondo
+                        </p>
+                        <p className="mt-0.5 text-[11px] leading-5 text-white/40">
+                          Dividends are inside the token price, so this row cannot
+                          set the call. The gap is versus the price-wrapper reference.
+                        </p>
+                      </div>
+                      <WrapperTable
+                        desk={desk}
+                        rows={desk.accrual}
+                        selected={selected}
+                        onSelect={setSelected}
+                        unit={unit}
+                        notional={notional}
+                        onNotional={changeNotional}
+                        muted
+                      />
+                    </div>
+                  )}
                   {desk.dust?.length > 0 && (
                     <div className="border-t border-white/[0.06]">
                       <button
@@ -443,8 +475,8 @@ export default function Page() {
                         className="flex w-full items-center justify-between px-4 py-3 text-left text-xs text-white/45 hover:text-white/70 sm:px-5"
                       >
                         <span>
-                          Illiquid / dust · {desk.dust.length} names you cannot
-                          exit
+                          Outside the core · {desk.dust.length}{" "}
+                          {desk.dust.length === 1 ? "name" : "names"} too thin to set the call
                         </span>
                         <span className="font-mono">{dustOpen ? "−" : "+"}</span>
                       </button>
@@ -452,6 +484,33 @@ export default function Page() {
                         <WrapperTable
                           desk={desk}
                           rows={desk.dust}
+                          selected={selected}
+                          onSelect={setSelected}
+                          unit={unit}
+                          notional={notional}
+                          onNotional={changeNotional}
+                          muted
+                        />
+                      )}
+                    </div>
+                  )}
+                  {desk.quiet?.length > 0 && (
+                    <div className="border-t border-white/[0.06]">
+                      <button
+                        type="button"
+                        onClick={() => setQuietOpen((v) => !v)}
+                        className="flex w-full items-center justify-between px-4 py-3 text-left text-xs text-white/45 hover:text-white/70 sm:px-5"
+                      >
+                        <span>
+                          Listed, no market · {desk.quiet.length}{" "}
+                          {desk.quiet.length === 1 ? "quote" : "quotes"} with no volume
+                        </span>
+                        <span className="font-mono">{quietOpen ? "−" : "+"}</span>
+                      </button>
+                      {quietOpen && (
+                        <WrapperTable
+                          desk={desk}
+                          rows={desk.quiet}
                           selected={selected}
                           onSelect={setSelected}
                           unit={unit}

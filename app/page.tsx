@@ -41,19 +41,19 @@ const pipeline = [
   ["01", "Resolve", "rwa_id"],
   ["02", "Discover", "tokens + issuers"],
   ["03", "Normalize", "$/share or $/oz"],
-  ["04", "Filter", "liquidity + depth"],
-  ["05", "Compare", "basis"],
+  ["04", "Filter", "core of the book"],
+  ["05", "Compare", "vs reference"],
   ["06", "Check", "30d range"],
   ["07", "Call", "Trade / Wait / Skip"],
 ] as const;
 
 const trace = [
   ["CGO looks cheapest", "The raw sort stops here."],
-  ["Volume is only $7K/day", "Below the liquidity floor."],
-  ["Liquidity trap", "Cheap is not tradeable."],
-  ["PAXG vs XAUt", "The liquid book, only."],
-  ["21.4 bps", "Gross wrapper basis."],
-  ["96th percentile", "Against 30 daily closes."],
+  ["Volume is only $8k/day", "Under the floor, and far below the lead book."],
+  ["Liquidity trap", "Cheap is not the trade."],
+  ["XAUt and PAXG", "The core of the book."],
+  ["About 1 bp", "Under the liquid reference."],
+  ["Inside the 30-day range", "Not a fade. The desk waits."],
 ] as const;
 
 export default function Landing() {
@@ -177,43 +177,50 @@ export default function Landing() {
               Liquid reference
             </p>
             <p className="num mt-1 font-mono text-3xl tracking-tight sm:text-4xl">
-              $4,182.41
+              $4,164.20
               <span className="ml-2 text-sm text-[#858B96]">/ oz</span>
             </p>
             <div className="mt-4 rounded-xl border border-[#E3B341]/25 bg-[#E3B341]/[0.06] p-3">
               <p className="text-[10px] uppercase tracking-[0.16em] text-[#858B96]">
                 Desk call
               </p>
-              <p className="mt-1 font-mono text-2xl font-semibold text-[#43D17A]">
-                Prefer PAXG
+              <p className="mt-1 font-mono text-2xl font-semibold text-[#E3B341]">
+                Wait
+              </p>
+              <p className="mt-1 text-xs leading-5 text-[#858B96]">
+                XAUt and PAXG are the core. CGO is cheaper and too thin to trade.
               </p>
             </div>
             <dl className="mt-4 space-y-1.5 font-mono text-sm">
               <div className="flex items-baseline justify-between gap-3">
-                <dt>PAXG</dt>
-                <dd className="num shrink-0 text-[#43D17A]">$4,176.82</dd>
+                <dt>XAUt</dt>
+                <dd className="num shrink-0">$4,164.40</dd>
               </div>
               <div className="flex items-baseline justify-between gap-3 text-[#858B96]">
-                <dt>XAUt</dt>
-                <dd className="num shrink-0">$4,185.77</dd>
+                <dt>PAXG</dt>
+                <dd className="num shrink-0">$4,163.70</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3 text-[#F06B78]">
+                <dt>CGO · trap</dt>
+                <dd className="num shrink-0">$4,110.40</dd>
               </div>
             </dl>
             <p className="num mt-3 font-mono text-sm text-[#F1EEE6]">
-              +21.4 bps
-              <span className="ml-3 text-[#858B96]">+$8.95 / oz</span>
+              1.2 bps under the reference
+              <span className="ml-3 text-[#858B96]">$0.50 / oz</span>
             </p>
             <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/[0.06] pt-3 text-[11px]">
               <div>
                 <p className="uppercase tracking-[0.14em] text-[#858B96]">30d basis</p>
-                <p className="num mt-1 font-mono text-[#F1EEE6]">96th percentile</p>
+                <p className="num mt-1 font-mono text-[#F1EEE6]">42nd percentile</p>
               </div>
               <div>
                 <p className="uppercase tracking-[0.14em] text-[#858B96]">Liquidity</p>
                 <p className="num mt-1 font-mono">
-                  XAUt <span className="text-[#858B96]">$17B</span>
+                  XAUt <span className="text-[#858B96]">$230M</span>
                 </p>
                 <p className="num font-mono">
-                  PAXG <span className="text-[#858B96]">$280M</span>
+                  PAXG <span className="text-[#858B96]">$154M</span>
                 </p>
               </div>
             </div>

@@ -1,16 +1,17 @@
 import {
   applyFairValue,
-  basisBps,
   buildTicket,
+  cheapestCore,
+  coreBook,
+  discountBps,
   liquidReference,
-  liquidSpreadPair,
   splitBoard,
 } from "./basis";
 import { clusterForQuery } from "./catalog";
 import { getCluster, ouncesPerToken } from "./clusters";
 import { asArray, cmcGet, cmcGetLive, hasApiKey, isPlanGate, num, usdQuote } from "./cmc";
 import { goldFixture } from "./fixture";
-import { fetchSpreadHistory, rankAgainstHistory } from "./history";
+import { fetchCoreDiscountHistory, rankAgainstHistory } from "./history";
 import { loadIssuer, parseTradfiMarkets } from "./issuer";
 import { loadUnderlying } from "./underlying";
 import { demoVenuesFor, pairCountFor, parseVenues, venuesFor } from "./venues";
@@ -355,35 +356,37 @@ export async function loadDesk(
   const pricesOk = list.some((w) => w.normalizedUsd != null);
   const fair = liquidReference(list, cluster.volumeFloorUsd);
   const scored = applyFairValue(list, fair);
-  const { main, dust } = splitBoard(scored, cluster.volumeFloorUsd);
+  const { main, dust, quiet, accrual } = splitBoard(scored, cluster.volumeFloorUsd);
 
-  const pair = liquidSpreadPair(scored, cluster.volumeFloorUsd);
+  const core = coreBook(scored, cluster.volumeFloorUsd);
+  const cheap = cheapestCore(scored, cluster.volumeFloorUsd);
+  const coreLegs = core.filter((w) => w.cryptoId != null);
   let spread = null;
   let history = null;
   if (
-    pair?.cheap.cryptoId &&
-    pair?.rich.cryptoId &&
-    pair.cheap.cryptoId !== pair.rich.cryptoId
+    cheap?.cryptoId != null &&
+    cheap.normalizedUsd != null &&
+    fair != null &&
+    coreLegs.length >= 2
   ) {
     try {
-      const hist = await fetchSpreadHistory(
+      const hist = await fetchCoreDiscountHistory(
         {
-          symbol: pair.cheap.symbol,
-          cryptoId: pair.cheap.cryptoId,
-          ouncesPerToken: pair.cheap.ouncesPerToken,
+          symbol: cheap.symbol,
+          cryptoId: cheap.cryptoId,
+          ouncesPerToken: cheap.ouncesPerToken,
+          volume24h: cheap.volume24h,
         },
-        {
-          symbol: pair.rich.symbol,
-          cryptoId: pair.rich.cryptoId,
-          ouncesPerToken: pair.rich.ouncesPerToken,
-        },
+        coreLegs.map((w) => ({
+          symbol: w.symbol,
+          cryptoId: w.cryptoId as number,
+          ouncesPerToken: w.ouncesPerToken,
+          volume24h: w.volume24h,
+        })),
       );
       if (hist.endpoint) endpointsUsed.push(hist.endpoint);
-      const liveBps =
-        pair.cheap.normalizedUsd != null && pair.rich.normalizedUsd != null
-          ? basisBps(pair.rich.normalizedUsd, pair.cheap.normalizedUsd)
-          : null;
-      const ranked = liveBps == null ? null : rankAgainstHistory(hist.points, liveBps);
+      const liveBps = discountBps(cheap.normalizedUsd, fair);
+      const ranked = rankAgainstHistory(hist.points, liveBps);
       history =
         hist.summary && ranked
           ? {
@@ -394,8 +397,8 @@ export async function loadDesk(
           : hist.summary;
       spread = {
         clusterId: cluster.id,
-        buySymbol: pair.cheap.symbol,
-        avoidSymbol: pair.rich.symbol,
+        buySymbol: cheap.symbol,
+        avoidSymbol: "reference",
         points: hist.points,
         summary: history,
         endpointsUsed: hist.endpoint ? [hist.endpoint] : [],
@@ -470,6 +473,8 @@ export async function loadDesk(
     wrappers: scored,
     main,
     dust,
+    quiet,
+    accrual,
     ticket,
     spread,
     underlying,

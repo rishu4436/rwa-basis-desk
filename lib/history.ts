@@ -2,39 +2,6 @@ import { DESK_POLICY } from "./basis";
 import { asArray, cmcGet, hasApiKey, num } from "./cmc";
 import type { HistorySummary, SpreadPoint } from "./types";
 
-export async function fetchSpreadHistory(
-  left: { symbol: string; cryptoId: number; ouncesPerToken: number },
-  right: { symbol: string; cryptoId: number; ouncesPerToken: number },
-): Promise<{ points: SpreadPoint[]; summary: HistorySummary | null; endpoint: string }> {
-  if (!hasApiKey()) {
-    return { points: [], summary: null, endpoint: "" };
-  }
-  const both = await cmcGet("/v2/cryptocurrency/ohlcv/historical", {
-    id: `${left.cryptoId},${right.cryptoId}`,
-    convert: "USD",
-    time_period: "daily",
-    count: 31,
-    skip_invalid: "true",
-  });
-  const closesA = closesForId(both.data, left.cryptoId, left.ouncesPerToken);
-  const closesB = closesForId(both.data, right.cryptoId, right.ouncesPerToken);
-  const days = [...new Set([...closesA.keys(), ...closesB.keys()])].sort();
-  const points: SpreadPoint[] = days.map((date) => {
-    const buyClose = closesA.get(date) ?? null;
-    const avoidClose = closesB.get(date) ?? null;
-    const bps =
-      buyClose && avoidClose
-        ? ((avoidClose - buyClose) / buyClose) * 10_000
-        : null;
-    return { date, bps, buyClose, avoidClose };
-  });
-  return {
-    points,
-    summary: summarizeHistory(points, left.symbol, right.symbol),
-    endpoint: "GET /v2/cryptocurrency/ohlcv/historical",
-  };
-}
-
 export function summarizeHistory(
   points: SpreadPoint[],
   leftSymbol: string,
@@ -57,8 +24,8 @@ export function summarizeHistory(
     ? dollarGaps.reduce((sum, n) => sum + n, 0) / dollarGaps.length
     : null;
   const extreme =
-    Math.abs(last) >= DESK_POLICY.wideBasisBps &&
-    (percentile >= DESK_POLICY.extremePercentile || percentile <= 10);
+    last >= DESK_POLICY.wideBasisBps &&
+    percentile >= DESK_POLICY.extremePercentile;
   return {
     leftSymbol,
     rightSymbol,
@@ -90,8 +57,74 @@ export function rankAgainstHistory(
     percentile,
     days: vals.length,
     extreme:
-      Math.abs(liveBps) >= DESK_POLICY.wideBasisBps &&
-      (percentile >= DESK_POLICY.extremePercentile || percentile <= 10),
+      liveBps >= DESK_POLICY.wideBasisBps &&
+      percentile >= DESK_POLICY.extremePercentile,
+  };
+}
+
+export type CoreLeg = {
+  symbol: string;
+  cryptoId: number;
+  ouncesPerToken: number;
+  volume24h: number;
+};
+
+/**
+ * Discount of the cheap wrapper versus a volume-weighted core, one point per day.
+ * Weights are today's volumes. A day needs the cheap close and at least one other.
+ */
+export function discountSeries(
+  data: unknown,
+  cheap: CoreLeg,
+  core: CoreLeg[],
+): SpreadPoint[] {
+  const maps = new Map<number, Map<string, number>>();
+  for (const leg of core) {
+    maps.set(leg.cryptoId, closesForId(data, leg.cryptoId, leg.ouncesPerToken));
+  }
+  const days = [...new Set([...maps.values()].flatMap((m) => [...m.keys()]))].sort();
+  return days.map((date) => {
+    let weight = 0;
+    let acc = 0;
+    let others = 0;
+    for (const leg of core) {
+      const close = maps.get(leg.cryptoId)?.get(date);
+      if (close == null || !(leg.volume24h > 0)) continue;
+      weight += leg.volume24h;
+      acc += close * leg.volume24h;
+      if (leg.cryptoId !== cheap.cryptoId) others += 1;
+    }
+    const cheapClose = maps.get(cheap.cryptoId)?.get(date) ?? null;
+    const vwap = weight > 0 ? acc / weight : null;
+    const bps =
+      cheapClose != null && vwap != null && others > 0
+        ? ((vwap - cheapClose) / vwap) * 10_000
+        : null;
+    return { date, bps, buyClose: cheapClose, avoidClose: vwap };
+  });
+}
+
+/** 30-day discount of the cheap core wrapper versus the rest of the core. */
+export async function fetchCoreDiscountHistory(
+  cheap: CoreLeg,
+  core: CoreLeg[],
+): Promise<{ points: SpreadPoint[]; summary: HistorySummary | null; endpoint: string }> {
+  const ids = [...new Set(core.map((leg) => leg.cryptoId).filter((id) => id > 0))];
+  if (!hasApiKey() || ids.length < 2) {
+    return { points: [], summary: null, endpoint: "" };
+  }
+  const both = await cmcGet("/v2/cryptocurrency/ohlcv/historical", {
+    id: ids.join(","),
+    convert: "USD",
+    time_period: "daily",
+    count: 31,
+    skip_invalid: "true",
+  });
+  const points = discountSeries(both.data, cheap, core);
+  return {
+    points,
+    summary: summarizeHistory(points, cheap.symbol, "reference"),
+    endpoint: "GET /v2/cryptocurrency/ohlcv/historical",
   };
 }
 

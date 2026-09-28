@@ -204,8 +204,14 @@ export type DeskSnapshot = {
   tradfiMarkets: TradfiMarket[];
   issuer: IssuerProfile | null;
   wrappers: Wrapper[];
+  /** Core book: dollar floor and at least 10% of the lead wrapper. */
   main: Wrapper[];
+  /** Priced, but too thin to set the call. */
   dust: Wrapper[];
+  /** No price or no volume. Kept out of the trap and the call. */
+  quiet: Wrapper[];
+  /** Total-return tokens. Shown beside the call, not inside it. */
+  accrual: Wrapper[];
   ticket: Ticket;
   spread: SpreadSeries | null;
   underlying: UnderlyingInfo | null;

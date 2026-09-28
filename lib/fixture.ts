@@ -89,7 +89,7 @@ export function goldFixture(): DeskSnapshot {
         issuerName: "Tether Holdings",
         normalizedUsd: 4173,
         rawPriceUsd: 4173,
-        volume24h: 17_000_000_000,
+        volume24h: 1_000_000_000,
         marketCap: 1_400_000_000,
         pairCount: 40,
         venues: [binance],
@@ -111,7 +111,7 @@ export function goldFixture(): DeskSnapshot {
   );
   const fair = liquidReference(wrappers, cluster.volumeFloorUsd) ?? 4168;
   const scored = applyFairValue(wrappers, fair);
-  const { main, dust } = splitBoard(scored, cluster.volumeFloorUsd);
+  const { main, dust, quiet, accrual } = splitBoard(scored, cluster.volumeFloorUsd);
   const paxgVenues = scored.find((w) => w.symbol === "PAXG")?.venues ?? [];
   const ticket = buildTicket(scored, fair, cluster.volumeFloorUsd, cluster.unit, {
     venuesByCryptoId: {
@@ -158,11 +158,13 @@ export function goldFixture(): DeskSnapshot {
     wrappers: scored,
     main,
     dust,
+    quiet,
+    accrual,
     ticket,
     spread: {
       clusterId: "gold",
       buySymbol: "PAXG",
-      avoidSymbol: "XAUt",
+      avoidSymbol: "reference",
       points,
       summary: ticket.history,
       endpointsUsed: [],

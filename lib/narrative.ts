@@ -71,7 +71,7 @@ const PIPELINE = [
   { label: "RWA quotes", note: "tokens[]" },
   { label: "crypto_id", note: "price + volume" },
   { label: "Market pairs", note: "Growth+ venues" },
-  { label: "Liquidity filter", note: "volume floor" },
+  { label: "Liquidity filter", note: "core of the book" },
   { label: "Basis engine", note: "liquid reference" },
   { label: "Desk call", note: "prefer / skip / wait" },
 ] as const;
@@ -127,13 +127,14 @@ export function basisOpportunity(desk: DeskSnapshot): BasisOpportunity | null {
   if (
     t.action !== "skip" &&
     t.buySymbol &&
-    t.avoidSymbol &&
     t.dollarGap != null &&
     t.spreadBps != null
   ) {
     return {
       left: nameOf(desk, t.buySymbol, t.buyCryptoId),
-      right: nameOf(desk, t.avoidSymbol, t.avoidCryptoId),
+      right: t.avoidSymbol
+        ? nameOf(desk, t.avoidSymbol, t.avoidCryptoId)
+        : "the liquid reference",
       dollar: t.dollarGap,
       bps: t.spreadBps,
     };
@@ -181,8 +182,8 @@ export function deskCall(desk: DeskSnapshot): DeskCall {
       verb: `PREFER ${nameOf(desk, t.buySymbol, t.buyCryptoId)}`,
       detail:
         trapLine ??
-        (t.avoidSymbol
-          ? `Skip ${nameOf(desk, t.avoidSymbol, t.avoidCryptoId)} — richest liquid wrapper`
+        (t.spreadBps != null
+          ? `${t.spreadBps.toFixed(1)} bps under the liquid reference`
           : "Liquid book is unusually wide"),
     };
   }
@@ -208,11 +209,11 @@ export function deskCall(desk: DeskSnapshot): DeskCall {
 
   let range = "No trade on the liquid book";
   if (t.history && t.spreadBps != null && t.spreadBps >= WIDE_BPS) {
-    range = `${t.spreadBps.toFixed(1)} bps is inside the 30-day range`;
+    range = `${t.spreadBps.toFixed(1)} bps under the reference is inside the 30-day range`;
   } else if (!t.history && t.spreadBps != null && t.spreadBps >= WIDE_BPS) {
-    range = `${t.spreadBps.toFixed(1)} bps wide — no 30-day range yet`;
-  } else if (t.buySymbol && t.avoidSymbol && t.spreadBps != null) {
-    range = `${nameOf(desk, t.buySymbol, t.buyCryptoId)} and ${nameOf(desk, t.avoidSymbol, t.avoidCryptoId)} are ${t.spreadBps.toFixed(1)} bps apart`;
+    range = `${t.spreadBps.toFixed(1)} bps under the reference — no 30-day range yet`;
+  } else if (t.buySymbol && t.spreadBps != null) {
+    range = `${nameOf(desk, t.buySymbol, t.buyCryptoId)} is ${t.spreadBps.toFixed(1)} bps under the liquid reference`;
   }
   return {
     tone: "wait",
@@ -234,21 +235,21 @@ export function whyLines(desk: DeskSnapshot): string[] {
   const lines: string[] = [];
   const opp = basisOpportunity(desk);
 
-  if (t.action === "buy" && opp && t.avoidSymbol) {
+  if (t.action === "buy" && opp) {
     lines.push(
-      `${opp.left} is $${opp.dollar.toFixed(2)} cheaper per ${unit} than ${opp.right}, the richest liquid wrapper (${opp.bps.toFixed(1)} bps).`,
+      `${opp.left} is $${opp.dollar.toFixed(2)} cheaper per ${unit} than the liquid reference (${opp.bps.toFixed(1)} bps).`,
     );
   } else if (t.action === "wait" && opp && t.spreadBps != null && t.spreadBps < WIDE_BPS) {
     lines.push(
-      `${opp.left} and ${opp.right} are ${opp.bps.toFixed(1)} bps apart. That is inside the band where the desk does not call a trade.`,
+      `${opp.left} is ${opp.bps.toFixed(1)} bps under the liquid reference. That is inside the band where the desk does not call a trade.`,
     );
   } else if (t.action === "wait" && opp && t.history) {
     lines.push(
-      `${opp.left} is $${opp.dollar.toFixed(2)} cheaper per ${unit} than ${opp.right} (${opp.bps.toFixed(1)} bps), but that gap sits inside the 30-day range.`,
+      `${opp.left} is $${opp.dollar.toFixed(2)} cheaper per ${unit} than the liquid reference (${opp.bps.toFixed(1)} bps), but that gap sits inside the 30-day range.`,
     );
   } else if (t.action === "wait" && opp) {
     lines.push(
-      `The liquid book is ${opp.bps.toFixed(1)} bps wide (${opp.left} vs ${opp.right}), and there is no 30-day history yet, so the desk waits.`,
+      `${opp.left} is ${opp.bps.toFixed(1)} bps under the liquid reference, and there is no 30-day history yet, so the desk waits.`,
     );
   } else if (t.action === "skip" && opp) {
     lines.push(
@@ -265,15 +266,21 @@ export function whyLines(desk: DeskSnapshot): string[] {
   if (t.trap && t.action !== "skip") {
     const versus = trapVersus(desk);
     const extra = versus?.ref ? ` than ${versus.ref}` : "";
+    const trapRow = findWrapper(desk, t.trap.symbol, t.trap.cryptoId);
+    const floorMiss =
+      trapRow != null && trapRow.volume24h >= desk.cluster.volumeFloorUsd
+        ? `it is under ${Math.round(DESK_POLICY.leadVolumeShare * 100)}% of the lead wrapper's volume`
+        : `it fails the $${formatUsd(desk.cluster.volumeFloorUsd)} daily volume floor`;
     lines.push(
-      `${nameOf(desk, t.trap.symbol, t.trap.cryptoId)} is technically cheaper, but it fails the $${formatUsd(desk.cluster.volumeFloorUsd)} daily volume floor${versus ? ` — ${versus.phrase}${extra}` : ""}.`,
+      `${nameOf(desk, t.trap.symbol, t.trap.cryptoId)} is technically cheaper, but ${floorMiss}${versus ? ` — ${versus.phrase}${extra}` : ""}.`,
     );
   }
 
+  const share = Math.round(DESK_POLICY.leadVolumeShare * 100);
   lines.push(
     desk.liquidReferenceUsd == null
-      ? `No stable liquid reference — fewer than ${DESK_POLICY.minLiquidWrappers} wrappers clear the $${formatUsd(desk.cluster.volumeFloorUsd)} volume floor, so thin names are not averaged in.`
-      : `Liquid reference is the volume-weighted price of wrappers above $${formatUsd(desk.cluster.volumeFloorUsd)} a day. It is wrapper versus wrapper, not a NAV. Thin names do not move it.`,
+      ? `No stable liquid reference — fewer than ${DESK_POLICY.minLiquidWrappers} wrappers clear the $${formatUsd(desk.cluster.volumeFloorUsd)} volume floor and ${share}% of the lead book, so thin names are not averaged in.`
+      : `Liquid reference is the volume-weighted price of the core: above $${formatUsd(desk.cluster.volumeFloorUsd)} a day and at least ${share}% of the lead wrapper. Ondo total-return tokens stay out, because reinvested dividends sit in their price. It is wrapper versus wrapper, not a NAV.`,
   );
 
   if (t.history?.extreme) {
@@ -324,7 +331,7 @@ export function liquidityBars(desk: DeskSnapshot): LiquidityBar[] {
   };
 
   for (const row of ranked) {
-    if (!isLiquidEnough(row, floor)) continue;
+    if (!isLiquidEnough(row, floor, desk.wrappers)) continue;
     take(row);
     if (picked.length >= 4) break;
   }
@@ -342,12 +349,16 @@ export function liquidityBars(desk: DeskSnapshot): LiquidityBar[] {
       maxLog > 0
         ? Math.max(8, Math.min(100, (Math.log10(Math.max(row.volume24h, 1)) / maxLog) * 100))
         : 8,
-    thin: !isLiquidEnough(row, floor),
+    thin: !isLiquidEnough(row, floor, desk.wrappers),
   }));
 }
 
-function liquidityWord(row: Wrapper, floor: number): StructureColumn["liquidity"] {
-  if (!isLiquidEnough(row, floor)) return "Thin";
+function liquidityWord(
+  row: Wrapper,
+  floor: number,
+  peers: Wrapper[],
+): StructureColumn["liquidity"] {
+  if (!isLiquidEnough(row, floor, peers)) return "Thin";
   if (row.tradability === "A" || row.tradability === "B") return "High";
   return "Medium";
 }
@@ -366,6 +377,8 @@ export function structureColumns(desk: DeskSnapshot): StructureColumn[] {
   };
   take(findWrapper(desk, t.buySymbol, t.buyCryptoId));
   take(findWrapper(desk, t.avoidSymbol, t.avoidCryptoId));
+  const lead = [...desk.main].sort((a, b) => b.volume24h - a.volume24h)[0];
+  take(lead);
   if (t.trap) take(findWrapper(desk, t.trap.symbol, t.trap.cryptoId));
   if (picked.length < 2) {
     [...desk.wrappers]
@@ -380,7 +393,7 @@ export function structureColumns(desk: DeskSnapshot): StructureColumn[] {
     price: row.normalizedUsd,
     volume24h: row.volume24h,
     venues: row.pairCount || row.venues.length,
-    liquidity: liquidityWord(row, floor),
+    liquidity: liquidityWord(row, floor, desk.wrappers),
   }));
 }
 

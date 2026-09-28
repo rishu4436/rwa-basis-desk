@@ -116,10 +116,11 @@ export function DecisionHero({
               : ""}
           </p>
           <p className="mt-2 text-[11px] leading-5 text-white/35">
-            Desk policy · wide ≥ {DESK_POLICY.wideBasisBps} bps · extreme ≥{" "}
-            {DESK_POLICY.extremePercentile}th percentile of 30 daily closes · liquid
-            reference needs {DESK_POLICY.minLiquidWrappers} wrappers · size cap{" "}
-            {Math.round(DESK_POLICY.executionDepthHaircut * 100)}% of ±2% depth
+            Desk policy · wide ≥ {DESK_POLICY.wideBasisBps} bps under the reference ·
+            extreme ≥ {DESK_POLICY.extremePercentile}th percentile of 30 daily closes ·
+            core needs {DESK_POLICY.minLiquidWrappers} wrappers, each ≥{" "}
+            {Math.round(DESK_POLICY.leadVolumeShare * 100)}% of the lead volume · size
+            cap {Math.round(DESK_POLICY.executionDepthHaircut * 100)}% of ±2% depth
           </p>
         </div>
 
@@ -333,7 +334,9 @@ export function BasisHistory({
         <Stat label="Signal" value={read.signal} />
       </dl>
       <p className="mt-3 text-[11px] leading-5 text-white/30">
-        Regime check uses 30-day daily closes. The desk call uses the live quote.
+        The series is the cheap core wrapper against the volume-weighted core.
+        The percentile is where today&apos;s live discount sits. The desk call uses
+        that live discount.
         Dollar stats are the average of those historical gaps, not basis times
         today&apos;s reference. CoinMarketCap has no dedicated historical RWA series,
         so this joins each wrapper&apos;s crypto_id to /v2/cryptocurrency/ohlcv/historical.

@@ -10,7 +10,12 @@ import {
   volumeWeightedFairValue,
   wrapperLabel,
 } from "./basis";
-import { closesForId, rankAgainstHistory, summarizeHistory } from "./history";
+import {
+  closesForId,
+  discountSeries,
+  rankAgainstHistory,
+  summarizeHistory,
+} from "./history";
 import { CmcError, isPlanGate } from "./cmc";
 import { assetClassFrom, unitFor } from "./clusters";
 import { allowRequest } from "./guard";
@@ -98,13 +103,13 @@ describe("fair value", () => {
   it("ignores thin names when two liquid wrappers exist", () => {
     const rows = applyFairValue(
       [
-        wrap({ symbol: "XAUt", normalizedUsd: 4164, volume24h: 17_000_000_000 }),
+        wrap({ symbol: "XAUt", normalizedUsd: 4164, volume24h: 1_000_000_000 }),
         wrap({ symbol: "PAXG", normalizedUsd: 4173, volume24h: 280_000_000 }),
         wrap({ symbol: "XAUM", normalizedUsd: 4200, volume24h: 700_000 }),
       ],
       volumeWeightedFairValue(
         [
-          wrap({ symbol: "XAUt", normalizedUsd: 4164, volume24h: 17_000_000_000 }),
+          wrap({ symbol: "XAUt", normalizedUsd: 4164, volume24h: 1_000_000_000 }),
           wrap({ symbol: "PAXG", normalizedUsd: 4173, volume24h: 280_000_000 }),
           wrap({ symbol: "XAUM", normalizedUsd: 4200, volume24h: 700_000 }),
         ],
@@ -225,15 +230,16 @@ describe("ticket", () => {
   it("says wait when liquid wrappers are tight", () => {
     const scored = applyFairValue(
       [
-        wrap({ symbol: "XAUt", normalizedUsd: 4164, volume24h: 17_000_000_000 }),
+        wrap({ symbol: "XAUt", normalizedUsd: 4164, volume24h: 1_000_000_000 }),
         wrap({ symbol: "PAXG", normalizedUsd: 4166, volume24h: 280_000_000 }),
       ],
       4164.5,
     );
     const ticket = buildTicket(scored, 4164.5, 1_000_000, "troy ounce");
     assert.equal(ticket.action, "wait");
-    assert.match(ticket.headline, /bps apart/);
+    assert.match(ticket.headline, /under the liquid reference/);
     assert.equal(ticket.trap, null);
+    assert.equal(ticket.avoidSymbol, null);
   });
 
   it("keeps the liquid ticket when a dust trap exists", () => {
@@ -249,8 +255,8 @@ describe("ticket", () => {
     assert.equal(ticket.action, "wait");
     assert.equal(ticket.trap?.symbol, "XAUM");
     assert.equal(ticket.buySymbol, "XAUt");
-    assert.equal(ticket.avoidSymbol, "PAXG");
-    assert.match(ticket.headline, /bps apart/);
+    assert.equal(ticket.avoidSymbol, null);
+    assert.match(ticket.headline, /under the liquid reference/);
   });
 
   it("waits on a wide liquid gap when there is no 30-day history", () => {
@@ -265,7 +271,7 @@ describe("ticket", () => {
     assert.equal(ticket.action, "wait");
     assert.match(ticket.headline, /no 30-day range/);
     assert.equal(ticket.buySymbol, "SPYon");
-    assert.equal(ticket.avoidSymbol, "SPYX");
+    assert.equal(ticket.avoidSymbol, null);
   });
 
   it("compares the whole liquid book, not the two fattest prints", () => {
@@ -294,11 +300,11 @@ describe("ticket", () => {
     );
     const pair = liquidSpreadPair(scored, 100_000);
     assert.equal(pair?.cheap.symbol, "NVDAB");
-    assert.equal(pair?.rich.symbol, "WNVDAX");
+    assert.equal(pair?.rich.symbol, "NVDAX");
     const ticket = buildTicket(scored, 225.6, 100_000, "share", {
       history: {
         leftSymbol: "NVDAB",
-        rightSymbol: "WNVDAX",
+        rightSymbol: "reference",
         lastBps: 40,
         minBps: 5,
         maxBps: 42,
@@ -309,9 +315,10 @@ describe("ticket", () => {
         extreme: true,
       },
     });
-    assert.equal(ticket.action, "buy");
+    assert.equal(ticket.action, "wait");
     assert.equal(ticket.buySymbol, "NVDAB");
-    assert.equal(ticket.avoidSymbol, "WNVDAX");
+    assert.equal(ticket.avoidSymbol, null);
+    assert.equal(splitBoard(scored, 100_000).dust[0]?.symbol, "WNVDAX");
   });
 
   it("grades volume into tradability", () => {
@@ -368,6 +375,95 @@ describe("ticket", () => {
       },
     });
     assert.equal(ticket.action, "buy");
+    assert.equal(ticket.avoidSymbol, null);
+  });
+
+  it("keeps a thin tail and a dead quote out of the call", () => {
+    const scored = [
+      wrap({
+        symbol: "NVDA",
+        issuerName: "Robinhood",
+        normalizedUsd: 223.35,
+        volume24h: 33_000_000,
+      }),
+      wrap({
+        symbol: "NVDAB",
+        issuerName: "bStocks",
+        normalizedUsd: 223.02,
+        volume24h: 14_000_000,
+      }),
+      wrap({
+        symbol: "rNVDA",
+        issuerName: "Reality",
+        normalizedUsd: 223,
+        volume24h: 255_000,
+      }),
+      wrap({
+        symbol: "NVDA",
+        issuerName: "Hyperliquid Assets",
+        normalizedUsd: 200,
+        volume24h: 0,
+      }),
+    ];
+    const split = splitBoard(scored, 100_000);
+    assert.deepEqual(
+      split.main.map((w) => w.symbol),
+      ["NVDAB", "NVDA"],
+    );
+    assert.equal(split.dust[0]?.symbol, "rNVDA");
+    assert.equal(split.quiet[0]?.issuerName, "Hyperliquid Assets");
+    const fair = volumeWeightedFairValue(scored, 100_000);
+    const ticket = buildTicket(scored, fair, 100_000, "share");
+    assert.equal(ticket.action, "wait");
+    assert.equal(ticket.trap?.symbol, "rNVDA");
+    assert.notEqual(ticket.buySymbol, "rNVDA");
+  });
+
+  it("does not let an Ondo total-return token set the call", () => {
+    const scored = [
+      wrap({
+        symbol: "SPY",
+        issuerName: "Robinhood",
+        normalizedUsd: 767.8,
+        volume24h: 11_000_000,
+      }),
+      wrap({
+        symbol: "SPYX",
+        issuerName: "Backed Assets",
+        normalizedUsd: 770.3,
+        volume24h: 14_000_000,
+      }),
+      wrap({
+        symbol: "SPYon",
+        issuerName: "Ondo Assets",
+        normalizedUsd: 776,
+        volume24h: 2_200_000,
+      }),
+    ];
+    const split = splitBoard(scored, 100_000);
+    assert.deepEqual(
+      split.accrual.map((w) => w.symbol),
+      ["SPYon"],
+    );
+    assert.equal(split.main.some((w) => w.symbol === "SPYon"), false);
+    const fair = volumeWeightedFairValue(scored, 100_000);
+    const ticket = buildTicket(scored, fair, 100_000, "share", {
+      history: {
+        leftSymbol: "SPY",
+        rightSymbol: "reference",
+        lastBps: 80,
+        minBps: 1,
+        maxBps: 90,
+        percentile: 99,
+        days: 30,
+        avgBps: 10,
+        avgDollarGap: 2,
+        extreme: true,
+      },
+    });
+    assert.notEqual(ticket.buySymbol, "SPYon");
+    assert.notEqual(ticket.avoidSymbol, "SPYon");
+    assert.equal(ticket.trap?.symbol ?? null, null);
   });
 });
 
@@ -382,6 +478,21 @@ describe("board split", () => {
     );
     assert.deepEqual(main.map((w) => w.symbol), ["XAUt"]);
     assert.deepEqual(dust.map((w) => w.symbol), ["VNXAU"]);
+  });
+
+  it("parks zero-volume quotes and total-return tokens outside the core", () => {
+    const split = splitBoard(
+      [
+        wrap({ symbol: "QQQ", normalizedUsd: 737, volume24h: 15_000_000, issuerName: "bStocks" }),
+        wrap({ symbol: "QQQon", normalizedUsd: 741, volume24h: 2_000_000, issuerName: "Ondo Assets" }),
+        wrap({ symbol: "QQQ", normalizedUsd: 680, volume24h: 0, issuerName: "Hyperliquid Assets" }),
+      ],
+      100_000,
+    );
+    assert.deepEqual(split.main.map((w) => w.symbol), ["QQQ"]);
+    assert.deepEqual(split.accrual.map((w) => w.symbol), ["QQQon"]);
+    assert.equal(split.quiet.length, 1);
+    assert.equal(split.dust.length, 0);
   });
 });
 
@@ -428,6 +539,7 @@ describe("history", () => {
     assert.equal(ranked.percentile, 100);
     assert.equal(ranked.extreme, true);
     assert.equal(rankAgainstHistory(points, 11)?.extreme, false);
+    assert.equal(rankAgainstHistory(points, -40)?.extreme, false);
   });
 
   it("reads both crypto ids from one OHLCV payload", () => {
@@ -451,6 +563,26 @@ describe("history", () => {
     };
     assert.equal(closesForId(data, 5176, 1).get("2026-09-01"), 4100);
     assert.equal(closesForId(data, 4705, 1).get("2026-09-01"), 4200);
+  });
+
+  it("measures the cheap close against the volume-weighted core", () => {
+    const data = {
+      "1": {
+        quotes: [{ time_close: "2026-09-01T00:00:00.000Z", quote: { USD: { close: 90 } } }],
+      },
+      "2": {
+        quotes: [{ time_close: "2026-09-01T00:00:00.000Z", quote: { USD: { close: 100 } } }],
+      },
+    };
+    const cheap = { symbol: "NVDAB", cryptoId: 1, ouncesPerToken: 1, volume24h: 10 };
+    const core = [
+      cheap,
+      { symbol: "NVDA", cryptoId: 2, ouncesPerToken: 1, volume24h: 30 },
+    ];
+    const point = discountSeries(data, cheap, core)[0];
+    assert.equal(point?.buyClose, 90);
+    assert.equal(point?.avoidClose, 97.5);
+    assert.ok(Math.abs((point?.bps ?? 0) - ((97.5 - 90) / 97.5) * 10_000) < 1e-6);
   });
 });
 
@@ -725,15 +857,15 @@ describe("decision narrative", () => {
     assert.equal(call.verb, "WAIT");
     assert.match(call.detail, /Avoid CGO/);
     assert.match(call.detail, /more than 99% lower volume/);
-    assert.match(call.detail, /inside the 30-day range/);
+    assert.match(call.detail, /under the liquid reference/);
 
     const opp = basisOpportunity(desk);
     assert.equal(opp?.left, "PAXG");
-    assert.equal(opp?.right, "XAUt");
+    assert.equal(opp?.right, "the liquid reference");
     assert.ok((opp?.dollar ?? 0) > 0);
 
     const why = whyLines(desk).join(" ");
-    assert.match(why, /inside the 30-day range/);
+    assert.match(why, /inside the band where the desk does not call a trade/);
     assert.match(why, /fails the \$1\.00M daily volume floor/);
     assert.match(why, /Liquid reference is the volume-weighted price/);
     assert.match(why, /Coinbase PAXG\/USD/);
@@ -755,7 +887,7 @@ describe("decision narrative", () => {
 
     const read = basisRead(desk.spread);
     assert.equal(read.signal, "typical");
-    assert.equal(read.pair, "PAXG vs XAUt");
+    assert.equal(read.pair, "PAXG vs reference");
     assert.ok(endpointHits(desk.endpointsUsed).every((hit) => hit.live));
   });
 
@@ -820,7 +952,7 @@ describe("decision narrative", () => {
     };
     assert.equal(deskCall(desk).verb, "PREFER SPYon");
     const why = whyLines(desk).join(" ");
-    assert.match(why, /SPYon is \$8\.35 cheaper per share than SPYX/);
+    assert.match(why, /SPYon is \$4\.25 cheaper per share than the liquid reference/);
     assert.match(why, /96th percentile/);
     assert.match(why, /unusually wide/);
   });
@@ -876,13 +1008,13 @@ describe("duplicate venue books", () => {
         wrap({
           symbol: "SPY",
           cryptoId: 222,
-          issuerName: "Ondo",
-          normalizedUsd: 110,
+          issuerName: "Backed Assets",
+          normalizedUsd: 102,
           volume24h: 2_000_000,
           venues: [ondo],
         }),
       ],
-      105,
+      101,
     );
     const ticket = buildTicket(scored, 105, 100_000, "share", {
       venuesByCryptoId: { 111: [robinhood], 222: [ondo] },

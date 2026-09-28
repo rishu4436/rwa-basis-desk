@@ -86,10 +86,10 @@ The **watchlist board** on the home desk is the scan: every pinned name, the cal
 
 ## Demo path (90 seconds)
 
-1. Open **Gold**. Tradeable board is XAUt / PAXG (and any other name above the volume floor).
-2. A **trap** banner flags the cheap illiquid wrapper (VNXAU / XAUM in the dust drawer). The ticket itself is the liquid book — usually **no trade** if XAUt and PAXG are tight.
+1. Open **Gold**. The tradeable board is the core: above the volume floor and at least 10% of the lead wrapper's volume. On gold that is XAUt / PAXG.
+2. A **trap** banner flags the cheap illiquid wrapper (CGO / XAUM in the drawer). A zero-volume quote is listed as no market and cannot set the call. Ondo total-return tokens sit in their own row, because the dividend is inside the price. The ticket itself is the core — usually **no trade** if XAUt and PAXG are tight.
 3. **Where to trade** uses `market-pairs/list` when the key can call it. That endpoint is Growth+. On the hackathon Startup plan the desk says so, keeps the basis call, and labels any sample print as not live.
-4. 30-day chart: fade only if today is a range extreme; otherwise the ticket stays **no trade**.
+4. 30-day chart: prefer only if the discount to the reference is a range extreme; otherwise the ticket stays **no trade**.
 5. Switch to **S&P 500 (SPY)** and **NVIDIA**.
 6. Footer lists the live endpoints that actually ran.
 
@@ -102,8 +102,8 @@ Speak in dollars: “same ounce, this one is $36 more and has 1/400th the volume
 3. Expand `tokens[]` (issuer + `crypto_id`).
 4. Batch `GET /v3/cryptocurrency/quotes/latest` for live price/volume.
 5. `GET /v5/real-world-assets/market-pairs/list` for venue count.
-6. Liquid reference = volume-weighted mid of wrappers above a volume floor. It is wrapper versus wrapper, not a NAV. If fewer than two wrappers clear the floor, the reference stays blank. Thin names never pull it.
-7. Ticket from the **full liquid book** (cheapest vs richest above the floor). A thin cheap name is a trap warning, not the whole call.
+6. Liquid reference = volume-weighted price of the core. A wrapper is in the core when it clears the dollar floor and does at least 10% of the lead wrapper's volume. Ondo total-return tokens stay out. The reference is wrapper versus wrapper, not a NAV. If fewer than two wrappers clear the core, the reference stays blank.
+7. The ticket prefers a core wrapper only when it is at least 15 bps under that reference and that discount is at or above the 90th percentile of the 30-day series. Otherwise it waits. A thin cheap name is a trap warning, not the call.
 8. 30-day spread = `crypto_id` → `GET /v2/cryptocurrency/ohlcv/historical` (RWA has no history endpoint).
 
 Gram-denominated gold (CGO and similar) is scaled to **USD per troy ounce**.
