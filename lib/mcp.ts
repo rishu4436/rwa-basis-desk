@@ -34,6 +34,8 @@ export function ticketPayload(desk: DeskSnapshot) {
         : null,
     spreadBps: t.spreadBps,
     dollarGap: t.dollarGap,
+    distance: desk.distance,
+    cleared: desk.cleared,
     liquidReferenceUsd: desk.liquidReferenceUsd,
     unit: desk.cluster.unit,
     benchmark: desk.benchmark,
@@ -53,6 +55,7 @@ function boardPayload(row: BoardRow) {
     trap: row.trapSymbol,
     spreadBps: row.spreadBps,
     dollarGap: row.dollarGap,
+    distance: row.distance,
     liquidReferenceUsd: row.liquidReferenceUsd,
     error: row.error ?? null,
   };

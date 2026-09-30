@@ -62,7 +62,7 @@ DoraHacks: https://dorahacks.io/hackathon/coinmarketcap-api-202609
 4. X post: DoraHacks BUIDL link + demo + video + `#BuildwithCMC`.
 5. BUIDL: named CMC endpoints (see below) + API-feedback note (see below, also at `/feedback`).
 
-Judge pages: `/methodology` (Prefer / Skip / Wait rules), `/feedback` (API friction), `/mcp` (agent tools). MCP endpoint: `POST /api/mcp` with tools `desk_ticket`, `desk_board`, `desk_search`, `desk_evidence`. The key stays server-side. An equity or ETF desk also shows a Yahoo print as a labeled benchmark. That print is not the liquid reference and does not set the ticket. Gold has no LBMA print on CMC, so the ticket stays wrapper versus wrapper.
+Judge pages: `/methodology` (Prefer / Skip / Wait rules), `/feedback` (API friction), `/mcp` (agent tools). MCP endpoint: `POST /api/mcp` with tools `desk_ticket`, `desk_board`, `desk_search`, `desk_evidence`. The key stays server-side. An equity or ETF desk also shows a Yahoo print as a labeled benchmark, in dollars, beside the wrapper gap. That print is not the liquid reference and does not set the ticket. Gold has no LBMA print on CMC, so the ticket stays wrapper versus wrapper. Each Wait names how far the discount is from a Prefer. When a day in the window cleared both price gates, that session sits beside today's call, with the OHLCV dates and `GET /v2/cryptocurrency/ohlcv/historical`. A dollar size on that session appears only from a ±2% ask book.
 
 ## Read the numbers
 

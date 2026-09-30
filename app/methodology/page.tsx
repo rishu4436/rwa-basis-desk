@@ -59,7 +59,11 @@ export default function MethodologyPage() {
         <p className="mt-3">
           The Yahoo line is a labeled benchmark for equities and ETFs. It never enters the
           liquid reference or the Prefer rule. Commodities such as gold have no LBMA print
-          on CMC, so the desk says so and stays wrapper versus wrapper.
+          on CMC, so the desk says so and stays wrapper versus wrapper. Each Wait also says
+          how far the discount is from the 15 bps band and from the 90th-percentile bar.
+          When a day in the window cleared both, the desk names that date. The size on that
+          date stays blank unless this load has a ±2% ask book. That dollar does not set
+          today&apos;s ticket.
         </p>
       </section>
       <section>

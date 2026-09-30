@@ -1095,6 +1095,11 @@ function WatchBoard({
                     >
                       {call}
                     </span>
+                    {row.distance ? (
+                      <p className="mt-1 max-w-[18rem] text-[11px] leading-4 text-white/45">
+                        {row.distance}
+                      </p>
+                    ) : null}
                   </td>
                   <td className="px-3 py-3 text-right font-mono num text-white/80">
                     {formatDelta(

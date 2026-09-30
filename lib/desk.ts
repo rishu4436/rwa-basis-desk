@@ -5,6 +5,7 @@ import {
   coreBook,
   discountBps,
   liquidReference,
+  liveAskDepthUsd,
   splitBoard,
 } from "./basis";
 import { clusterForQuery } from "./catalog";
@@ -14,6 +15,13 @@ import { goldFixture } from "./fixture";
 import { fetchCoreDiscountHistory, rankAgainstHistory } from "./history";
 import { loadIssuer, parseTradfiMarkets } from "./issuer";
 import { emptyBenchmark, loadBenchmark } from "./benchmark";
+import {
+  distanceLine,
+  illustrativeFillUsd,
+  lastClearedSession,
+  percentileBar,
+} from "./gates";
+import { readSessionLog, rememberSession } from "./session-log";
 import { loadUnderlying } from "./underlying";
 import { demoVenuesFor, pairCountFor, parseVenues, venuesFor } from "./venues";
 import type {
@@ -419,6 +427,62 @@ export async function loadDesk(
     venuesByCryptoId,
     history,
   });
+  const series = (spread?.points ?? [])
+    .map((point) => point.bps)
+    .filter((bps): bps is number => bps != null && Number.isFinite(bps));
+  const barBps = percentileBar(series);
+  const distance = distanceLine({
+    spreadBps: ticket.spreadBps,
+    days: history?.days ?? null,
+    percentile: history?.percentile ?? null,
+    maxBps: history?.maxBps ?? null,
+    barBps,
+  });
+  const passed = lastClearedSession(spread?.points ?? [], barBps);
+  const askNow = cheap ? liveAskDepthUsd(cheap.venues) : null;
+  const storedBook =
+    passed == null
+      ? null
+      : (readSessionLog().find(
+          (row) =>
+            row.clusterId === cluster.id &&
+            row.date === passed.date &&
+            row.askDepthUsd != null &&
+            row.askDepthUsd > 0,
+        )?.askDepthUsd ?? null);
+  const bookUsd = askNow ?? storedBook;
+  const illustrative = passed ? illustrativeFillUsd(bookUsd, passed.bps) : null;
+  const sized = illustrative != null && illustrative > 0;
+  const cleared =
+    passed && barBps != null
+      ? {
+          date: passed.date,
+          symbol: cheap?.symbol ?? passed.date,
+          bps: passed.bps,
+          barBps,
+          illustrativeUsd: sized ? illustrative : null,
+          bookNote:
+            bookUsd == null
+              ? "CoinMarketCap does not keep that day's ask book, and this load has no ±2% ask depth, so the size stays blank."
+              : !sized
+                ? askNow != null
+                  ? `This load's ±2% ask cannot keep 15 bps at the ${passed.date} discount. It does not set today's ticket.`
+                  : `The ±2% ask saved on ${passed.date} cannot keep 15 bps at that discount. It does not set today's ticket.`
+                : askNow != null
+                  ? `Sized from this load's ±2% ask, priced with the ${passed.date} discount. It does not set today's ticket.`
+                  : `Sized from the ±2% ask saved on ${passed.date}. It does not set today's ticket.`,
+        }
+      : null;
+  if (!lite) {
+    rememberSession({
+      date: new Date().toISOString().slice(0, 10),
+      clusterId: cluster.id,
+      spreadBps: ticket.spreadBps,
+      barBps,
+      askDepthUsd: askNow,
+      recordedAt: new Date().toISOString(),
+    });
+  }
 
   let benchmark = emptyBenchmark(
     (cluster.rwaSymbols[0] ?? cluster.label).toUpperCase(),
@@ -485,6 +549,8 @@ export async function loadDesk(
     quiet,
     accrual,
     ticket,
+    distance,
+    cleared,
     spread,
     underlying,
     benchmark,
@@ -550,6 +616,7 @@ export async function loadBoard(ids: string[]): Promise<BoardRow[]> {
             name: d.cluster.label,
             action: d.ticket.action,
             headline: d.ticket.headline,
+            distance: d.distance,
             buySymbol: d.ticket.buySymbol,
             avoidSymbol: d.ticket.avoidSymbol,
             trapSymbol: d.ticket.trap?.symbol ?? null,
@@ -566,6 +633,7 @@ export async function loadBoard(ids: string[]): Promise<BoardRow[]> {
             name: id,
             action: "only-one" as const,
             headline: err instanceof Error ? err.message : "Failed to load",
+            distance: null,
             buySymbol: null,
             avoidSymbol: null,
             trapSymbol: null,

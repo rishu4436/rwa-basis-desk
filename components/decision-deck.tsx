@@ -1,4 +1,5 @@
-import { DESK_POLICY, formatUsd } from "@/lib/basis";
+import { DESK_POLICY, formatDollars, formatUsd } from "@/lib/basis";
+import { sessionsThatCleared } from "@/lib/gates";
 import {
   extraOnNotional,
   formatDelta,
@@ -89,7 +90,7 @@ export function DecisionHero({
   return (
     <section className="card overflow-hidden border-gold-400/20 bg-gradient-to-br from-gold-400/[0.07] via-transparent to-transparent">
       <div className="grid gap-6 p-5 sm:p-7 lg:grid-cols-12 lg:gap-8">
-        <div className="lg:col-span-12">
+        <div className={desk.cleared ? "lg:order-1 lg:col-span-12" : "lg:col-span-12"}>
           <p className="text-[11px] uppercase tracking-[0.22em] text-gold-400">
             {symbol}
             <span className="ml-3 text-white/35">
@@ -141,7 +142,13 @@ export function DecisionHero({
           </p>
         </div>
 
-        <div className="order-2 lg:order-none lg:col-span-4">
+        <div
+          className={
+            desk.cleared
+              ? "order-3 lg:order-4 lg:col-span-6"
+              : "order-2 lg:order-none lg:col-span-4"
+          }
+        >
           <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">
             Basis opportunity
           </p>
@@ -184,7 +191,13 @@ export function DecisionHero({
           </div>
         </div>
 
-        <div className="order-3 lg:order-none lg:col-span-4">
+        <div
+          className={
+            desk.cleared
+              ? "order-4 lg:order-5 lg:col-span-6"
+              : "order-3 lg:order-none lg:col-span-4"
+          }
+        >
           <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">
             Liquidity
           </p>
@@ -214,17 +227,89 @@ export function DecisionHero({
           <p className="mt-2 text-[10px] text-white/30">Bar length is log volume.</p>
         </div>
 
-        <div className={`order-1 rounded-2xl border p-4 lg:order-none lg:col-span-4 ${look.box}`}>
+        <div
+          className={`order-1 rounded-2xl border p-4 ${
+            desk.cleared ? "lg:order-2 lg:col-span-7" : "lg:order-none lg:col-span-4"
+          } ${look.box}`}
+        >
           <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Desk call</p>
           <p className={`mt-2 font-mono text-3xl font-semibold tracking-tight sm:text-4xl ${look.verb}`}>
             {call.verb}
           </p>
+          {desk.distance ? (
+            <p className="mt-3 text-sm leading-6 text-white">{desk.distance}</p>
+          ) : null}
           <p className="mt-3 text-sm leading-6 text-white/70">{call.detail}</p>
+          <ShareGap desk={desk} />
           <ExecutionNote desk={desk} notional={notional} />
           <LoadEvidence desk={desk} />
         </div>
+        <ClearedSessionCard desk={desk} />
       </div>
     </section>
+  );
+}
+
+function ShareGap({ desk }: { desk: DeskSnapshot }) {
+  const print = desk.benchmark;
+  if (print.priceUsd == null || print.premiumBps == null || print.dollarGap == null) {
+    return (
+      <p className="mt-3 text-[11px] leading-5 text-white/50">
+        {print.note || "No labeled share print. The ticket stays wrapper versus wrapper."}
+      </p>
+    );
+  }
+  const rich = print.premiumBps >= 0;
+  return (
+    <p className="mt-3 text-[11px] leading-5 text-white/60">
+      Share gap · {print.symbol}{" "}
+      <span className="font-mono text-white/80">{money(print.priceUsd)}</span>
+      {" · liquid core is "}
+      <span className="font-mono text-white/80">
+        {formatSignedBps(print.premiumBps)} ({signedDollar(print.dollarGap)} / {shortUnit(desk.cluster.unit)})
+      </span>
+      {rich ? " above" : " under"} the Yahoo print. Benchmark only. It does not set the ticket.
+    </p>
+  );
+}
+
+function ClearedSessionCard({ desk }: { desk: DeskSnapshot }) {
+  const session = desk.cleared;
+  if (!session) return null;
+  const points = desk.spread?.points ?? [];
+  const dated = points.filter((point) => point.date);
+  const first = dated[0]?.date;
+  const last = dated[dated.length - 1]?.date;
+  const endpoint =
+    desk.spread?.endpointsUsed.find((name) => name.includes("ohlcv")) ??
+    "GET /v2/cryptocurrency/ohlcv/historical";
+  const hits = sessionsThatCleared(points, session.barBps);
+  return (
+    <div className="order-2 rounded-2xl border border-gold-400/25 bg-gold-400/[0.04] p-4 lg:order-3 lg:col-span-5">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-gold-400">
+        Last session that cleared both price gates
+      </p>
+      <p className="mt-2 text-sm leading-6 text-white">
+        {session.symbol} on {session.date} was {session.bps.toFixed(1)} bps under the liquid
+        book, above this window&apos;s {Math.round(session.barBps)} bps bar.
+      </p>
+      <p className="mt-2 font-mono text-[10px] leading-4 text-white/45">
+        {first && last ? `OHLCV ${first} to ${last}` : "OHLCV"} · {endpoint}
+      </p>
+      {hits.length > 0 ? (
+        <p className="mt-1 font-mono text-[10px] leading-4 text-white/55">
+          Cleared days:{" "}
+          {hits.map((point) => `${point.date} ${point.bps.toFixed(1)}`).join(" · ")}
+        </p>
+      ) : null}
+      <p className="mt-2 text-[11px] leading-5 text-white/55">{session.bookNote}</p>
+      {session.illustrativeUsd != null ? (
+        <p className="mt-1 font-mono text-sm text-white">
+          {formatDollars(session.illustrativeUsd)} keeps 15 bps if this load&apos;s ask is priced
+          with that discount. Not today&apos;s ticket.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

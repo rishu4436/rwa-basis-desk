@@ -1,4 +1,5 @@
-import { applyFairValue, buildTicket, liquidReference, splitBoard } from "./basis";
+import { applyFairValue, buildTicket, liquidReference, liveAskDepthUsd, splitBoard } from "./basis";
+import { distanceLine, illustrativeFillUsd, lastClearedSession, percentileBar } from "./gates";
 import { getCluster } from "./clusters";
 import type { DeskSnapshot, Venue, Wrapper } from "./types";
 
@@ -141,6 +142,35 @@ export function goldFixture(): DeskSnapshot {
     buyClose: 4160,
     avoidClose: 4170,
   }));
+  const barBps = percentileBar(points.map((point) => point.bps));
+  const passed = lastClearedSession(points, barBps);
+  const distance = distanceLine({
+    spreadBps: ticket.spreadBps,
+    days: ticket.history?.days ?? null,
+    percentile: ticket.history?.percentile ?? null,
+    maxBps: ticket.history?.maxBps ?? null,
+    barBps,
+  });
+  const askNow = liveAskDepthUsd(
+    scored.find((wrapper) => wrapper.symbol === ticket.buySymbol)?.venues ?? [],
+  );
+  const illustrative = passed ? illustrativeFillUsd(askNow, passed.bps) : null;
+  const cleared =
+    passed && barBps != null
+      ? {
+          date: passed.date,
+          symbol: ticket.buySymbol ?? "PAXG",
+          bps: passed.bps,
+          barBps,
+          illustrativeUsd: illustrative != null && illustrative > 0 ? illustrative : null,
+          bookNote:
+            askNow == null
+              ? "CoinMarketCap does not keep that day's ask book, and this load has no ±2% ask depth, so the size stays blank."
+              : illustrative != null && illustrative > 0
+                ? `Sized from this load's ±2% ask, priced with the ${passed.date} discount. It does not set today's ticket.`
+                : `This load's ±2% ask cannot keep 15 bps at the ${passed.date} discount. It does not set today's ticket.`,
+        }
+      : null;
   return {
     cluster,
     generatedAt: "2026-09-18T12:00:00.000Z",
@@ -165,6 +195,8 @@ export function goldFixture(): DeskSnapshot {
     quiet,
     accrual,
     ticket,
+    distance,
+    cleared,
     spread: {
       clusterId: "gold",
       buySymbol: "PAXG",

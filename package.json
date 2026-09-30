@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "tsx --test lib/basis.test.ts"
+    "test": "tsx --test lib/basis.test.ts lib/gates.test.ts"
   },
   "dependencies": {
     "next": "^15.5.26",

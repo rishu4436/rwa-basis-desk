@@ -171,10 +171,18 @@ export default function Landing() {
             </div>
             <p className="mt-4 max-w-xl text-sm leading-6 text-[#858B96]">
               Judges: open the{" "}
-              <Link href={DESK} className={`text-[#E3B341] hover:underline ${focus} rounded-sm`}>
-                live Gold ticket
+              <Link
+                href="/desk?asset=SPY"
+                className={`text-[#E3B341] hover:underline ${focus} rounded-sm`}
+              >
+                live SPY ticket
               </Link>
-              . The call and the CoinMarketCap endpoints from that load are on the same screen.
+              . Today&apos;s Wait shows how far the gap is from a Prefer, and the last session
+              that cleared both price gates sits on the same card. The{" "}
+              <Link href={DESK} className={`text-[#E3B341] hover:underline ${focus} rounded-sm`}>
+                Gold desk
+              </Link>{" "}
+              is the commodity case.
               The plan limit is on{" "}
               <Link href="/feedback" className={`text-[#E3B341] hover:underline ${focus} rounded-sm`}>
                 API feedback

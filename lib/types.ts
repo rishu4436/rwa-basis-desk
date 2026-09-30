@@ -243,6 +243,10 @@ export type DeskSnapshot = {
   /** Total-return tokens. Shown beside the call, not inside it. */
   accrual: Wrapper[];
   ticket: Ticket;
+  /** Plain-language distance from a Prefer. Does not change the call. */
+  distance: string | null;
+  /** Latest day in the window that cleared 15 bps and the percentile bar. */
+  cleared: ClearedSession | null;
   spread: SpreadSeries | null;
   underlying: UnderlyingInfo | null;
   /** TradFi print beside the ticket. Null price means we refused to invent one. */
@@ -275,12 +279,24 @@ export type SpreadSeries = {
   endpointsUsed: string[];
 };
 
+/** A past day that cleared both price gates. The dollar, when present, uses a book from this load. */
+export type ClearedSession = {
+  date: string;
+  symbol: string;
+  bps: number;
+  barBps: number;
+  illustrativeUsd: number | null;
+  bookNote: string;
+};
+
 export type BoardRow = {
   id: string;
   symbol: string;
   name: string;
   action: TicketAction;
   headline: string;
+  /** How far this row is from a Prefer. Null when the gap is missing. */
+  distance: string | null;
   buySymbol: string | null;
   avoidSymbol: string | null;
   trapSymbol: string | null;
