@@ -91,7 +91,15 @@ export type Venue = {
   cryptoId: number | null;
   recommended: boolean;
   marketScore: number | null;
+  /**
+   * Depth shown on the row. The ask when CMC sent the buy side, otherwise
+   * the bid or an unlabeled figure. Not the executable size.
+   */
   depthUsd: number | null;
+  /** +2% ask depth. Dollars you can buy. Absent when that side was not sent. */
+  askDepthUsd?: number | null;
+  /** −2% bid depth. Dollars you can sell. Absent when that side was not sent. */
+  bidDepthUsd?: number | null;
   lastUpdated: string | null;
   /** Demo prints are labelled samples. They are not a live book. */
   listed?: "live" | "demo";
@@ -129,9 +137,13 @@ export type Wrapper = {
   pairCount: number;
   basisBps: number | null;
   tradability: Tradability;
-  /** ±2% depth used for the size cap. Null when venue depth is missing. */
+  /** Live ±2% ask depth on the recommended print. Null when the buy book is missing or only a sample. */
   depthUsd: number | null;
-  /** Haircut of displayed depth. Null when depth is missing or only a sample. */
+  /**
+   * Dollars you can buy and still keep the average fill at least 15 bps
+   * under the reference. Null when the buy book is missing. Zero when the
+   * quote is not wider than that band.
+   */
   capacityUsd: number | null;
   venues: Venue[];
 };
@@ -159,6 +171,12 @@ export type TicketTrap = {
   spreadBps: number | null;
   dollarGap: number | null;
   vsSymbol: string | null;
+  /** Live ±2% ask depth. Null when the buy book is missing or only a sample. */
+  askDepthUsd: number | null;
+  /** Live ±2% bid depth. Null when the exit book is missing or only a sample. */
+  bidDepthUsd: number | null;
+  /** Buy size that takes the average-fill discount to zero. Null when the buy book is unmeasured. */
+  holdUsd: number | null;
 };
 
 export type Ticket = {

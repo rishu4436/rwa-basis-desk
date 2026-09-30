@@ -27,11 +27,21 @@ export default function MethodologyPage() {
           </li>
           <li>Reference — volume-weighted price of the core. Blank unless two core wrappers exist.</li>
           <li>
-            Extreme — Prefer only if a core wrapper is at least {DESK_POLICY.wideBasisBps} bps
-            under that reference and today&apos;s discount is at or above the{" "}
-            {DESK_POLICY.extremePercentile}th percentile of the 30-day series. Otherwise Wait.
+            Extreme — a core wrapper is at least {DESK_POLICY.wideBasisBps} bps under that
+            reference, and today&apos;s discount is at or above the{" "}
+            {DESK_POLICY.extremePercentile}th percentile of the 30-day series.
           </li>
-          <li>Trap — the cheapest priced name outside the core is a warning, not the call.</li>
+          <li>
+            Fill — Prefer only when the recommended venue&apos;s ±2% ask book can take at
+            least ${DESK_POLICY.minExecutableUsd.toLocaleString("en-US")} and the average
+            fill is still {DESK_POLICY.wideBasisBps} bps under the reference. A missing book
+            or a sample print stays Wait. The desk does not invent a size from 24h volume.
+          </li>
+          <li>
+            Trap — the cheapest priced name outside the core is a warning, not the call.
+            With a live ask book, that cheap price holds for a stated dollar size, then it
+            is gone.
+          </li>
         </ol>
       </section>
       <section>
@@ -40,6 +50,10 @@ export default function MethodologyPage() {
           <li>basis bps = (price − liquid reference) / liquid reference × 10,000</li>
           <li>dollar gap = price − liquid reference, per ounce or share</li>
           <li>extra on a buy = |bps| / 10,000 × notional</li>
+          <li>
+            executable buy = ±2% ask depth × (discount bps − {DESK_POLICY.wideBasisBps}) / 100
+          </li>
+          <li>trap hold = ±2% ask depth × discount bps / 100</li>
           <li>benchmark bps = (liquid reference − Yahoo print) / Yahoo print × 10,000</li>
         </ul>
         <p className="mt-3">
@@ -52,10 +66,16 @@ export default function MethodologyPage() {
         <h2 className="text-base font-medium text-white">What Prefer means</h2>
         <p>
           Prefer names the cheapest core wrapper that clears the dollar floor, the lead-volume
-          share, the {DESK_POLICY.wideBasisBps} bps discount, and the 30-day extreme. Skip names
-          a thin trap you should not treat as the trade. Wait means the gap is inside the
-          recent range, history is missing, or the book is too tight to call. An all-Wait
-          tape is a decision.
+          share, the {DESK_POLICY.wideBasisBps} bps discount, and the 30-day extreme, and whose
+          recommended venue can take at least ${DESK_POLICY.minExecutableUsd.toLocaleString("en-US")}{" "}
+          while the average fill stays{" "}
+          {DESK_POLICY.wideBasisBps} bps under the reference. The ticket states that dollar
+          size and the venue. Walking the full ±2% ask book costs 200 bps at the margin and
+          100 bps on the average fill. Skip names a thin trap. When that trap has a live ask
+          book, the ticket says how many dollars the cheap price holds before the discount
+          is gone. Wait means the gap is inside the recent range, history is missing, the
+          book is too tight, or the fill gives the discount back. A missing or sample book
+          stays Wait.
         </p>
       </section>
     </JudgeShell>

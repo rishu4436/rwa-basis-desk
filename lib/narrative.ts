@@ -1,8 +1,10 @@
 import {
   basisBps,
   DESK_POLICY,
+  formatDollars,
   formatUsd,
   isLiquidEnough,
+  trapHoldLine,
   WIDE_BPS,
   wrapperKey,
   wrapperLabel,
@@ -169,6 +171,13 @@ function trapVersus(desk: DeskSnapshot): { phrase: string; ref: string } | null 
   };
 }
 
+function sentences(parts: Array<string | null | undefined>): string {
+  return parts
+    .map((part) => (part ?? "").trim().replace(/\.+$/, ""))
+    .filter(Boolean)
+    .join(". ");
+}
+
 export function deskCall(desk: DeskSnapshot): DeskCall {
   const t = desk.ticket;
   const trap = trapVersus(desk);
@@ -177,14 +186,24 @@ export function deskCall(desk: DeskSnapshot): DeskCall {
     : null;
 
   if (t.action === "buy" && t.buySymbol) {
+    const name = nameOf(desk, t.buySymbol, t.buyCryptoId);
+    const buy = findWrapper(desk, t.buySymbol, t.buyCryptoId);
+    const print = bestPrint(desk);
+    const where =
+      print && print.listed !== "demo"
+        ? ` on ${print.exchange}${print.pair ? ` ${print.pair}` : ""}`
+        : "";
+    const fill =
+      buy?.capacityUsd != null
+        ? `You can buy ${formatDollars(buy.capacityUsd)} of ${name}${where}, and the fill is still ${WIDE_BPS} bps under the liquid reference`
+        : t.spreadBps != null
+          ? `${t.spreadBps.toFixed(1)} bps under the liquid reference`
+          : "Liquid book is unusually wide";
+    const hold = t.trap ? trapHoldLine(t.trap) : "";
     return {
       tone: "buy",
-      verb: `PREFER ${nameOf(desk, t.buySymbol, t.buyCryptoId)}`,
-      detail:
-        trapLine ??
-        (t.spreadBps != null
-          ? `${t.spreadBps.toFixed(1)} bps under the liquid reference`
-          : "Liquid book is unusually wide"),
+      verb: `PREFER ${name}`,
+      detail: sentences([fill, trapLine, hold]),
     };
   }
 
@@ -192,10 +211,11 @@ export function deskCall(desk: DeskSnapshot): DeskCall {
     const prefer = t.buySymbol
       ? `Prefer ${nameOf(desk, t.buySymbol, t.buyCryptoId)}`
       : "Too thin to exit";
+    const hold = trapHoldLine(t.trap);
     return {
       tone: "skip",
       verb: `SKIP ${nameOf(desk, t.trap.symbol, t.trap.cryptoId)}`,
-      detail: trapLine ? `${trapLine}. ${prefer}` : prefer,
+      detail: sentences([trapLine, hold, prefer]),
     };
   }
 
@@ -207,18 +227,27 @@ export function deskCall(desk: DeskSnapshot): DeskCall {
     };
   }
 
+  const buy = findWrapper(desk, t.buySymbol, t.buyCryptoId);
+  const extremeWide =
+    Boolean(t.history?.extreme) && t.spreadBps != null && t.spreadBps >= WIDE_BPS;
   let range = "No trade on the liquid book";
-  if (t.history && t.spreadBps != null && t.spreadBps >= WIDE_BPS) {
+  if (extremeWide && t.spreadBps != null) {
+    range =
+      buy?.capacityUsd == null
+        ? `${t.spreadBps.toFixed(1)} bps under the reference, and the buy book is unmeasured`
+        : `A buy that keeps ${WIDE_BPS} bps is about ${formatDollars(buy.capacityUsd)}, under the ${formatDollars(DESK_POLICY.minExecutableUsd)} floor`;
+  } else if (t.history && t.spreadBps != null && t.spreadBps >= WIDE_BPS) {
     range = `${t.spreadBps.toFixed(1)} bps under the reference is inside the 30-day range`;
   } else if (!t.history && t.spreadBps != null && t.spreadBps >= WIDE_BPS) {
     range = `${t.spreadBps.toFixed(1)} bps under the reference — no 30-day range yet`;
   } else if (t.buySymbol && t.spreadBps != null) {
     range = `${nameOf(desk, t.buySymbol, t.buyCryptoId)} is ${t.spreadBps.toFixed(1)} bps under the liquid reference`;
   }
+  const hold = t.trap ? trapHoldLine(t.trap) : "";
   return {
     tone: "wait",
     verb: "WAIT",
-    detail: trapLine ? `${trapLine}. ${range}` : range,
+    detail: sentences([trapLine, hold, range]),
   };
 }
 
@@ -242,6 +271,16 @@ export function whyLines(desk: DeskSnapshot): string[] {
   } else if (t.action === "wait" && opp && t.spreadBps != null && t.spreadBps < WIDE_BPS) {
     lines.push(
       `${opp.left} is ${opp.bps.toFixed(1)} bps under the liquid reference. That is inside the band where the desk does not call a trade.`,
+    );
+  } else if (
+    t.action === "wait" &&
+    opp &&
+    t.history?.extreme &&
+    t.spreadBps != null &&
+    t.spreadBps >= WIDE_BPS
+  ) {
+    lines.push(
+      `${opp.left} is $${opp.dollar.toFixed(2)} cheaper per ${unit} than the liquid reference (${opp.bps.toFixed(1)} bps). That discount is a 30-day extreme, and the fill does not keep it.`,
     );
   } else if (t.action === "wait" && opp && t.history) {
     lines.push(
@@ -274,6 +313,8 @@ export function whyLines(desk: DeskSnapshot): string[] {
     lines.push(
       `${nameOf(desk, t.trap.symbol, t.trap.cryptoId)} is technically cheaper, but ${floorMiss}${versus ? ` — ${versus.phrase}${extra}` : ""}.`,
     );
+    const hold = trapHoldLine(t.trap);
+    if (hold) lines.push(hold);
   }
 
   const share = Math.round(DESK_POLICY.leadVolumeShare * 100);
@@ -300,14 +341,28 @@ export function whyLines(desk: DeskSnapshot): string[] {
     );
   }
   const buy = findWrapper(desk, t.buySymbol, t.buyCryptoId);
-  if (buy?.capacityUsd != null && buy.depthUsd != null) {
+  const extremeWide =
+    Boolean(t.history?.extreme) && t.spreadBps != null && t.spreadBps >= WIDE_BPS;
+  const gated =
+    desk.venueCoverage.status === "plan-gated" || desk.venueCoverage.status === "demo";
+  if (t.action === "buy" && buy?.capacityUsd != null && buy.depthUsd != null) {
+    const where = print
+      ? `${print.exchange}${print.pair ? ` ${print.pair}` : ""}`
+      : "the recommended print";
     lines.push(
-      `Estimated executable size $${formatUsd(buy.capacityUsd)} — ${Math.round(DESK_POLICY.executionDepthHaircut * 100)}% of ±2% depth $${formatUsd(buy.depthUsd)}.`,
+      `You can buy ${formatDollars(buy.capacityUsd)} on ${where}, and the average fill is still ${WIDE_BPS} bps under the liquid reference. ±2% ask depth ${formatDollars(buy.depthUsd)}.`,
     );
-  } else if (
-    desk.venueCoverage.status === "plan-gated" ||
-    desk.venueCoverage.status === "demo"
-  ) {
+  } else if (extremeWide && buy?.capacityUsd != null && buy.capacityUsd < DESK_POLICY.minExecutableUsd) {
+    lines.push(
+      `A buy that keeps ${WIDE_BPS} bps is about ${formatDollars(buy.capacityUsd)}, under the ${formatDollars(DESK_POLICY.minExecutableUsd)} floor, so the desk waits.`,
+    );
+  } else if (extremeWide && buy?.depthUsd == null) {
+    lines.push(
+      gated
+        ? "±2% buy depth is a Growth+ market-pairs field, so the desk will not call Prefer or invent a size from 24h volume."
+        : "±2% buy depth is missing, so the desk will not call Prefer or invent a size from 24h volume.",
+    );
+  } else if (gated && buy?.depthUsd == null) {
     lines.push(
       "Venue depth is a Growth+ market-pairs field, so executable size is not estimated from 24h volume.",
     );

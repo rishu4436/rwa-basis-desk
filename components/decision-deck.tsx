@@ -135,8 +135,9 @@ export function DecisionHero({
             Desk policy · wide ≥ {DESK_POLICY.wideBasisBps} bps under the reference ·
             extreme ≥ {DESK_POLICY.extremePercentile}th percentile of 30 daily closes ·
             core needs {DESK_POLICY.minLiquidWrappers} wrappers, each ≥{" "}
-            {Math.round(DESK_POLICY.leadVolumeShare * 100)}% of the lead volume · size
-            cap {Math.round(DESK_POLICY.executionDepthHaircut * 100)}% of ±2% depth
+            {Math.round(DESK_POLICY.leadVolumeShare * 100)}% of the lead volume · fill
+            stays ≥ {DESK_POLICY.wideBasisBps} bps on the ±2% ask book, at least{" "}
+            {formatPlainUsd(DESK_POLICY.minExecutableUsd)}
           </p>
         </div>
 
@@ -239,30 +240,56 @@ function ExecutionNote({
         ? w.cryptoId === desk.ticket.buyCryptoId
         : w.symbol === desk.ticket.buySymbol,
     ) ?? null;
-  const depth = buy?.depthUsd ?? null;
-  const safe = buy?.capacityUsd ?? null;
-  const util = depth != null && depth > 0 ? (notional / depth) * 100 : null;
+  const ask = buy?.depthUsd ?? null;
+  const size = buy?.capacityUsd ?? null;
+  const util = ask != null && ask > 0 ? (notional / ask) * 100 : null;
   const gated =
     desk.venueCoverage.status === "plan-gated" || desk.venueCoverage.status === "demo";
+  const wideExtreme =
+    desk.ticket.spreadBps != null &&
+    desk.ticket.spreadBps >= DESK_POLICY.wideBasisBps &&
+    Boolean(desk.ticket.history?.extreme);
+  const print =
+    buy?.venues.find((v) => v.recommended && v.listed !== "demo") ??
+    buy?.venues.find((v) => v.listed !== "demo") ??
+    null;
+  const where = print
+    ? `${print.exchange}${print.pair ? ` ${print.pair}` : ""}`
+    : null;
   return (
     <div className="mt-4 border-t border-white/10 pt-3 text-[11px] leading-5 text-white/55">
-      {safe != null && depth != null ? (
+      {desk.ticket.action === "buy" && size != null && ask != null ? (
         <>
           <p className="font-mono text-sm text-white">
-            Estimated executable size {formatPlainUsd(safe)}
+            You can buy {formatPlainUsd(size)}
+            {where ? ` on ${where}` : ""} and the fill is still {DESK_POLICY.wideBasisBps}{" "}
+            bps under the reference.
           </p>
-          <p>±2% depth {formatPlainUsd(depth)}</p>
-          <p>
-            Desk size cap: {Math.round(DESK_POLICY.executionDepthHaircut * 100)}% of
-            displayed depth
-            {util != null ? ` · this size uses ${util.toFixed(0)}% of depth` : ""}
-          </p>
+          <p>±2% ask depth {formatPlainUsd(ask)}</p>
+          {util != null ? <p>This size uses {util.toFixed(0)}% of that ask book.</p> : null}
         </>
+      ) : wideExtreme && size != null && size < DESK_POLICY.minExecutableUsd ? (
+        <p>
+          A buy that keeps {DESK_POLICY.wideBasisBps} bps is about {formatPlainUsd(size)},
+          under the {formatPlainUsd(DESK_POLICY.minExecutableUsd)} floor.
+        </p>
+      ) : wideExtreme && ask == null ? (
+        <p>
+          {gated
+            ? "±2% buy depth is a Growth+ field. The desk will not call Prefer or invent a size from 24h volume."
+            : "±2% buy depth is missing on the recommended print, so executable size stays blank."}
+        </p>
+      ) : ask != null ? (
+        <p>
+          ±2% ask depth {formatPlainUsd(ask)}. Prefer needs the average fill to stay{" "}
+          {DESK_POLICY.wideBasisBps} bps under the reference for at least{" "}
+          {formatPlainUsd(DESK_POLICY.minExecutableUsd)}.
+        </p>
       ) : (
         <p>
           {gated
             ? "Venue depth is unavailable on the Startup plan. Executable size is not estimated from 24h volume."
-            : "No ±2% depth on the preferred wrapper, so executable size stays blank."}
+            : "No ±2% buy depth on the preferred wrapper, so executable size stays blank."}
         </p>
       )}
       <p className="mt-1 text-white/35">Gross wrapper basis. Not a locked-in profit.</p>

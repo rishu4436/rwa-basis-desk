@@ -59,6 +59,16 @@ function formatClock(iso: string | null | undefined): string {
   return `${d.toISOString().slice(0, 19).replace("T", " ")} UTC`;
 }
 
+function depthBits(v: Venue): string {
+  const parts: string[] = [];
+  if (v.askDepthUsd != null && v.askDepthUsd > 0) parts.push(`ask $${formatUsd(v.askDepthUsd)}`);
+  if (v.bidDepthUsd != null && v.bidDepthUsd > 0) parts.push(`bid $${formatUsd(v.bidDepthUsd)}`);
+  if (!parts.length && v.depthUsd != null && v.depthUsd > 0) {
+    parts.push(`±2% $${formatUsd(v.depthUsd)}`);
+  }
+  return parts.join(" · ");
+}
+
 export default function Page() {
   const [clusterId, setClusterId] = useState("gold");
   const [watchlist, setWatchlist] = useState<WatchItem[]>(DEFAULT_WATCHLIST);
@@ -861,7 +871,9 @@ function CallsStrip({
               ? "Scanning the watchlist…"
               : prefers.length
                 ? `${prefers.length} Prefer on the pinned book.`
-                : "No core wrapper is a 30-day extreme right now. Wait is the call."}
+                : skips.length
+                  ? `${skips.length} thin ${skips.length === 1 ? "name" : "names"} to skip.`
+                  : "Wait is the call on the pinned book."}
           </p>
         </div>
         <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-gold-400">
@@ -1387,14 +1399,14 @@ function VenueCard({
                   ${formatUsd(v.volume24h)}
                 </span>
               </div>
-              {(v.marketScore != null || v.depthUsd != null || v.lastUpdated) && (
+              {(v.marketScore != null || depthBits(v) || v.lastUpdated) && (
                 <p className="mt-0.5 text-[10px] text-white/30">
                   {v.marketScore != null ? `score ${v.marketScore.toFixed(1)}` : ""}
-                  {v.depthUsd != null
-                    ? `${v.marketScore != null ? " · " : ""}±2% $${formatUsd(v.depthUsd)}`
+                  {depthBits(v)
+                    ? `${v.marketScore != null ? " · " : ""}${depthBits(v)}`
                     : ""}
                   {v.lastUpdated
-                    ? `${v.marketScore != null || v.depthUsd != null ? " · " : ""}${formatClock(v.lastUpdated)}`
+                    ? `${v.marketScore != null || depthBits(v) ? " · " : ""}${formatClock(v.lastUpdated)}`
                     : ""}
                 </p>
               )}

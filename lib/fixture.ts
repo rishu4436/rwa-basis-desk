@@ -51,6 +51,8 @@ export function goldFixture(): DeskSnapshot {
     priceUsd: 4170,
     cryptoId: 5176,
     depthUsd: 61_000,
+    askDepthUsd: 61_000,
+    bidDepthUsd: 61_000,
     recommended: true,
   });
   const wrappers = applyFairValue(
@@ -76,6 +78,8 @@ export function goldFixture(): DeskSnapshot {
             priceUsd: 4166,
             cryptoId: 4705,
             depthUsd: 48_200,
+            askDepthUsd: 48_200,
+            bidDepthUsd: 48_200,
             recommended: true,
           }),
         ],

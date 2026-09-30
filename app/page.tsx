@@ -6,6 +6,8 @@ import { LogoMark } from "@/components/logo";
 const GITHUB = "https://github.com/rishu4436/rwa-basis-desk";
 const HACKATHON = "https://dorahacks.io/hackathon/coinmarketcap-api-202609";
 const DESK = "/desk?asset=GOLD";
+const DEMO = "https://youtu.be/X-LoNis5MQc";
+const DEMO_EMBED = "https://www.youtube.com/embed/X-LoNis5MQc";
 
 export const metadata: Metadata = {
   title: {
@@ -80,6 +82,9 @@ export default function Landing() {
             <a href="#product" className={`hover:text-[#F1EEE6] ${focus} rounded-sm`}>
               Product
             </a>
+            <a href="#demo" className={`hover:text-[#F1EEE6] ${focus} rounded-sm`}>
+              Demo
+            </a>
             <a href="#how" className={`hover:text-[#F1EEE6] ${focus} rounded-sm`}>
               How it works
             </a>
@@ -109,6 +114,9 @@ export default function Landing() {
         >
           <a href="#product" className={`shrink-0 ${focus} rounded-sm`}>
             Product
+          </a>
+          <a href="#demo" className={`shrink-0 ${focus} rounded-sm`}>
+            Demo
           </a>
           <a href="#how" className={`shrink-0 ${focus} rounded-sm`}>
             How it works
@@ -432,6 +440,41 @@ export default function Landing() {
           </figure>
         </section>
 
+        <section id="demo" className="border-y border-white/[0.06] bg-[#101319]/60">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#E3B341]">
+              Demo
+            </p>
+            <h2 className="mt-3 max-w-xl text-2xl font-semibold tracking-tight sm:text-3xl">
+              Watch the desk call
+            </h2>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-[#858B96]">
+              Gold, then the equity desks. Same asset, the liquid core, and the
+              Prefer, Skip, or Wait ticket.
+            </p>
+            <div className="mt-8 overflow-hidden rounded-2xl border border-white/[0.08] bg-black">
+              <div className="relative aspect-video w-full">
+                <iframe
+                  src={DEMO_EMBED}
+                  title="Basis Desk demo on YouTube"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  allowFullScreen
+                  className="absolute inset-0 h-full w-full"
+                />
+              </div>
+            </div>
+            <p className="mt-4 text-sm text-[#858B96]">
+              <a
+                href={DEMO}
+                className={`font-mono text-[#E3B341] hover:underline ${focus} rounded-sm`}
+              >
+                {DEMO}
+              </a>
+            </p>
+          </div>
+        </section>
+
         <section className="border-y border-white/[0.06] bg-[#101319]">
           <div className="mx-auto grid max-w-6xl gap-8 px-4 py-16 sm:px-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <div>
@@ -558,7 +601,7 @@ export default function Landing() {
             {[
               ["Reference", "Liquid-wrapper reference price, not intrinsic NAV."],
               ["History", "Historical comparison uses daily crypto OHLCV closes."],
-              ["Execution", "Venue and depth data are market evidence, not guaranteed fills."],
+              ["Execution", "Prefer only when the ±2% ask book still leaves the discount after the fill. A missing book stays Wait."],
             ].map(([k, v]) => (
               <div key={k}>
                 <h3 className="text-[11px] uppercase tracking-[0.16em] text-[#858B96]">{k}</h3>
@@ -605,6 +648,9 @@ export default function Landing() {
           <nav aria-label="Footer" className="flex flex-wrap gap-4 text-xs text-[#858B96]">
             <a href={GITHUB} className={`hover:text-[#F1EEE6] ${focus} rounded-sm`}>
               GitHub
+            </a>
+            <a href={DEMO} className={`hover:text-[#F1EEE6] ${focus} rounded-sm`}>
+              Demo
             </a>
             <a href={HACKATHON} className={`hover:text-[#F1EEE6] ${focus} rounded-sm`}>
               Hackathon

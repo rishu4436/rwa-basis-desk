@@ -12,7 +12,11 @@ export const DESK_POLICY = {
   wideBasisBps: 15,
   minHistoryDays: 5,
   extremePercentile: 90,
-  executionDepthHaircut: 0.25,
+  /**
+   * Prefer needs at least this many dollars still 15 bps cheap after
+   * walking the recommended venue's ask book.
+   */
+  minExecutableUsd: 10_000,
   minLiquidWrappers: 2,
   /** Core member must trade at least this share of the lead wrapper's volume. */
   leadVolumeShare: 0.1,
@@ -29,22 +33,65 @@ export function tradabilityFromVolume(volume24h: number): Tradability {
   return "F";
 }
 
-/** Minimum positive ±2% depth across live venues. Sample prints are ignored. */
-export function aggregateDepthUsd(venues: Venue[]): number | null {
-  const depths = venues
-    .filter((v) => v.listed !== "demo" && v.depthUsd != null && v.depthUsd > 0)
-    .map((v) => v.depthUsd as number);
-  if (!depths.length) return null;
-  return Math.min(...depths);
+function positiveDepth(n: number | null | undefined): number | null {
+  return n != null && Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** Conservative size cap. Null when there is no live depth to haircut. */
-export function safeCapacityFromDepth(
-  depthUsd: number | null,
-  haircut = DESK_POLICY.executionDepthHaircut,
+/** Recommended live print. Sample rows are not a book. */
+export function recommendedLiveVenue(venues: Venue[]): Venue | null {
+  const live = venues.filter((v) => v.listed !== "demo");
+  if (!live.length) return null;
+  return live.find((v) => v.recommended) ?? live[0];
+}
+
+/** +2% ask depth on the recommended live print. Bid depth does not count as a buy. */
+export function liveAskDepthUsd(venues: Venue[]): number | null {
+  return positiveDepth(recommendedLiveVenue(venues)?.askDepthUsd);
+}
+
+/** −2% bid depth on the recommended live print. */
+export function liveBidDepthUsd(venues: Venue[]): number | null {
+  return positiveDepth(recommendedLiveVenue(venues)?.bidDepthUsd);
+}
+
+/**
+ * Dollars you can buy and still keep the average fill at least `wideBps`
+ * under the reference.
+ *
+ * A linear ±2% book costs 200 bps at the margin and 100 bps on the average
+ * fill, so average-fill discount after size S of ask depth D is
+ * Q − (S / D) × 100. The size that stays at least `wideBps` cheap is
+ * S* = D × (Q − wideBps) / 100.
+ *
+ * Returns 0 when the quote is not wider than the band. Null when the buy
+ * book is missing. Bid depth and 24h volume are not a substitute for D.
+ */
+export function executableBuyUsd(
+  askDepthUsd: number | null,
+  discount: number,
+  wideBps = WIDE_BPS,
 ): number | null {
-  if (depthUsd == null || !(depthUsd > 0)) return null;
-  return depthUsd * haircut;
+  const depth = positiveDepth(askDepthUsd);
+  if (depth == null) return null;
+  if (!(discount > wideBps)) return 0;
+  return (depth * (discount - wideBps)) / 100;
+}
+
+/** Buy size that takes the average-fill discount to zero. */
+export function quoteHoldUsd(
+  askDepthUsd: number | null,
+  discount: number,
+): number | null {
+  const depth = positiveDepth(askDepthUsd);
+  if (depth == null) return null;
+  if (!(discount > 0)) return 0;
+  return (depth * discount) / 100;
+}
+
+/** Whole dollars for a fill. Volumes stay on formatUsd. */
+export function formatDollars(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  return `$${Math.round(Math.abs(n)).toLocaleString("en-US")}`;
 }
 
 /** Ondo stocks are total-return trackers: reinvested dividends sit in the token price. */
@@ -141,8 +188,14 @@ export function applyFairValue(
           ? basisBps(w.normalizedUsd, fair)
           : null,
       tradability: tradabilityFromVolume(w.volume24h),
-      depthUsd: aggregateDepthUsd(w.venues),
-      capacityUsd: safeCapacityFromDepth(aggregateDepthUsd(w.venues)),
+      depthUsd: liveAskDepthUsd(w.venues),
+      capacityUsd:
+        fair && w.normalizedUsd != null
+          ? executableBuyUsd(
+              liveAskDepthUsd(w.venues),
+              discountBps(w.normalizedUsd, fair),
+            )
+          : null,
     }))
     .sort((a, b) => {
       const av = a.normalizedUsd ?? Number.POSITIVE_INFINITY;
@@ -255,7 +308,13 @@ function finish(
       : [];
   let detail = ticket.detail;
   if (ctx?.history && !detail.includes("percentile")) detail += historyLine(ctx.history);
-  if (venues.length && !detail.includes("If you still buy")) detail += venueLine(venues);
+  if (ticket.action !== "buy" && venues.length && !detail.includes("If you still buy")) {
+    detail += venueLine(venues);
+  }
+  if (ticket.trap) {
+    const line = trapHoldLine(ticket.trap);
+    if (line && !detail.includes(line)) detail += ` ${line}`;
+  }
   return {
     ...ticket,
     detail,
@@ -285,11 +344,41 @@ function sides(buy: Wrapper | null, avoid: Wrapper | null) {
   };
 }
 
+function trapDiscountBps(
+  trap: Wrapper,
+  vs: Wrapper | null,
+  fair: number | null,
+): number | null {
+  if (trap.normalizedUsd == null) return null;
+  if (fair != null && fair > 0) return discountBps(trap.normalizedUsd, fair);
+  if (vs?.normalizedUsd != null && vs.normalizedUsd > 0) {
+    return discountBps(trap.normalizedUsd, vs.normalizedUsd);
+  }
+  return null;
+}
+
+export function trapHoldLine(trap: TicketTrap): string {
+  const name = trap.symbol;
+  if (trap.holdUsd != null && trap.holdUsd > 0) {
+    return `The cheap price on ${name} holds for about ${formatDollars(trap.holdUsd)}, then it is gone.`;
+  }
+  if (trap.askDepthUsd == null && trap.bidDepthUsd != null) {
+    return `${name} has no live ±2% buy book. The exit book inside 2% is about ${formatDollars(trap.bidDepthUsd)}.`;
+  }
+  if (trap.askDepthUsd == null) {
+    return `${name} has no live ±2% book, so the desk will not turn that discount into a size.`;
+  }
+  return "";
+}
+
 function asTrap(
   trap: Wrapper,
   vs: Wrapper | null,
   fair: number | null,
 ): TicketTrap {
+  const ask = liveAskDepthUsd(trap.venues);
+  const bid = liveBidDepthUsd(trap.venues);
+  const discount = trapDiscountBps(trap, vs, fair);
   return {
     symbol: trap.symbol,
     cryptoId: trap.cryptoId,
@@ -304,6 +393,9 @@ function asTrap(
         ? vs.normalizedUsd - trap.normalizedUsd
         : null,
     vsSymbol: vs?.symbol ?? null,
+    askDepthUsd: ask,
+    bidDepthUsd: bid,
+    holdUsd: discount != null ? quoteHoldUsd(ask, discount) : null,
   };
 }
 
@@ -438,15 +530,43 @@ export function buildTicket(
     );
   }
 
-  const size =
-    cheap.capacityUsd != null && cheap.depthUsd != null
-      ? `Estimated executable size $${formatUsd(cheap.capacityUsd)} (${Math.round(DESK_POLICY.executionDepthHaircut * 100)}% of ±2% depth $${formatUsd(cheap.depthUsd)}).`
-      : "Executable size is not estimated — ±2% venue depth is missing.";
+  const print = recommendedLiveVenue(cheap.venues);
+  const ask = positiveDepth(print?.askDepthUsd);
+  const size = ask != null ? executableBuyUsd(ask, spreadBpsVal) : null;
+  const where = print
+    ? `${print.exchange}${print.pair ? ` ${print.pair}` : ""}`
+    : null;
+  const fills =
+    size != null &&
+    size >= DESK_POLICY.minExecutableUsd &&
+    ask != null &&
+    where != null;
+
+  if (fills && where != null && size != null && ask != null) {
+    return finish(
+      {
+        action: "buy",
+        headline: `You can buy ${formatDollars(size)} of ${cheapName}`,
+        detail: `You can buy ${formatDollars(size)} of ${cheapName} on ${where}, and the fill is still ${WIDE_BPS} bps under the liquid reference. Same ${unit}. ${cheapName} is $${dollarGap.toFixed(2)} under the liquid reference (${spreadBpsVal.toFixed(1)} bps) — wide versus the 30-day range. ±2% ask depth ${formatDollars(ask)}. Gross wrapper basis, not a locked-in profit.`,
+        ...sides(cheap, null),
+        spreadBps: spreadBpsVal,
+        dollarGap,
+        trap,
+      },
+      ctx,
+    );
+  }
+
+  const missingBook = size == null || where == null;
   return finish(
     {
-      action: "buy",
-      headline: `Prefer ${cheapName}`,
-      detail: `Gross wrapper basis, not a locked-in profit. Same ${unit}. ${cheapName} is $${dollarGap.toFixed(2)} under the liquid reference (${spreadBpsVal.toFixed(1)} bps) — wide versus the 30-day range. ${size}`,
+      action: "wait",
+      headline: missingBook
+        ? `No trade — ${cheapName} is ${spreadBpsVal.toFixed(1)} bps under the reference, and the buy book is unmeasured`
+        : `No trade — the fill on ${cheapName} gives the ${spreadBpsVal.toFixed(1)} bps discount back`,
+      detail: missingBook
+        ? `The discount is wide versus the 30-day range. ±2% buy depth is missing, so the desk will not call Prefer or invent a size from 24h volume.`
+        : `The discount is wide versus the 30-day range. A buy that keeps ${WIDE_BPS} bps is about ${formatDollars(size ?? 0)}, under the ${formatDollars(DESK_POLICY.minExecutableUsd)} floor.`,
       ...sides(cheap, null),
       spreadBps: spreadBpsVal,
       dollarGap,

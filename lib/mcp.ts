@@ -25,6 +25,13 @@ export function ticketPayload(desk: DeskSnapshot) {
     prefer: t.buySymbol,
     avoid: t.avoidSymbol,
     trap: t.trap?.symbol ?? null,
+    trapHoldUsd: t.trap?.holdUsd ?? null,
+    executableUsd:
+      t.action === "buy"
+        ? (desk.wrappers.find((w) =>
+            t.buyCryptoId != null ? w.cryptoId === t.buyCryptoId : w.symbol === t.buySymbol,
+          )?.capacityUsd ?? null)
+        : null,
     spreadBps: t.spreadBps,
     dollarGap: t.dollarGap,
     liquidReferenceUsd: desk.liquidReferenceUsd,

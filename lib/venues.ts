@@ -21,9 +21,30 @@ export function parseVenues(pairs: unknown[]): Venue[] {
       }) as Record<string, unknown> | undefined) ??
       (quotes[0] as Record<string, unknown> | undefined) ??
       {};
+    const quoteBag = (p.quote || {}) as Record<string, unknown>;
+    const quoteUsd = (quoteBag.USD || quoteBag.usd || {}) as Record<string, unknown>;
     const name = String(ex.name || "");
     const slug = String(ex.slug || "");
     if (!name) continue;
+    const bidDepthUsd = num(
+      p.depth_negative_two ??
+        p.depth_usd_negative_2 ??
+        usd.depth_negative_two ??
+        usd.depth_usd_negative_2 ??
+        quoteUsd.depth_negative_two ??
+        quoteUsd.depth_usd_negative_2,
+    );
+    const askDepthUsd = num(
+      p.depth_positive_two ??
+        p.depth_usd_positive_2 ??
+        usd.depth_positive_two ??
+        usd.depth_usd_positive_2 ??
+        quoteUsd.depth_positive_two ??
+        quoteUsd.depth_usd_positive_2,
+    );
+    const unlabeled = num(
+      p.effective_liquidity ?? usd.effective_liquidity ?? quoteUsd.effective_liquidity,
+    );
     out.push({
       exchange: name,
       slug,
@@ -35,11 +56,9 @@ export function parseVenues(pairs: unknown[]): Venue[] {
       cryptoId: num(base.crypto_id),
       recommended: false,
       marketScore: num(p.market_score ?? p.marketScore),
-      depthUsd: num(
-        p.depth_negative_two ??
-          p.depth_usd_negative_2 ??
-          p.effective_liquidity,
-      ),
+      depthUsd: askDepthUsd ?? bidDepthUsd ?? unlabeled,
+      askDepthUsd,
+      bidDepthUsd,
       lastUpdated: usd.last_updated
         ? String(usd.last_updated)
         : p.last_updated
@@ -84,7 +103,7 @@ export function pickPrint(rows: Venue[], now = Date.now()): Venue {
         : 500;
     // A few bps is quote noise when depth is the real cost. Ignore it.
     const pricePenalty = gapBps <= 5 ? 0 : gapBps - 5;
-    const depth = v.depthUsd ?? 0;
+    const depth = scoredDepth(v);
     const depthPenalty = depth <= 0 ? 80 : depth < 10_000 ? 40 : 0;
     const age = ageMs(v, now);
     const stalePenalty =
@@ -95,8 +114,16 @@ export function pickPrint(rows: Venue[], now = Date.now()): Venue {
   }
 
   return [...candidates].sort(
-    (a, b) => score(a) - score(b) || (b.depthUsd ?? 0) - (a.depthUsd ?? 0),
+    (a, b) => score(a) - score(b) || scoredDepth(b) - scoredDepth(a),
   )[0];
+}
+
+/** Ask depth first. A bid-only book still ranks, but it is not a buy. */
+function scoredDepth(v: Venue): number {
+  if (v.askDepthUsd != null && v.askDepthUsd > 0) return v.askDepthUsd;
+  if (v.bidDepthUsd != null && v.bidDepthUsd > 0) return v.bidDepthUsd;
+  if (v.depthUsd != null && v.depthUsd > 0) return v.depthUsd;
+  return 0;
 }
 
 /** Labelled sample prints for the gold walkthrough when market pairs are plan-gated. */
@@ -113,6 +140,8 @@ const DEMO_PRINTS: Record<number, Venue> = {
     recommended: false,
     marketScore: null,
     depthUsd: 48_200,
+    askDepthUsd: null,
+    bidDepthUsd: null,
     lastUpdated: null,
     listed: "demo",
   },
@@ -128,6 +157,8 @@ const DEMO_PRINTS: Record<number, Venue> = {
     recommended: false,
     marketScore: null,
     depthUsd: 61_000,
+    askDepthUsd: null,
+    bidDepthUsd: null,
     lastUpdated: null,
     listed: "demo",
   },

@@ -5,8 +5,11 @@ import { handleRpc, listTools } from "./mcp";
 import {
   applyFairValue,
   buildTicket,
+  discountBps,
+  executableBuyUsd,
+  formatDollars,
   liquidSpreadPair,
-  safeCapacityFromDepth,
+  quoteHoldUsd,
   splitBoard,
   tradabilityFromVolume,
   volumeWeightedFairValue,
@@ -45,7 +48,7 @@ import {
   nextNotional,
 } from "./display";
 import { cmcCurrencyUrl, edgarCompanyUrl } from "./links";
-import type { Wrapper } from "./types";
+import type { Venue, Wrapper } from "./types";
 import {
   DEFAULT_WATCHLIST,
   deskPath,
@@ -54,6 +57,24 @@ import {
   resolveAssetParam,
   shareAssetKey,
 } from "./watchlist";
+
+function spot(partial: Partial<Venue> & Pick<Venue, "exchange">): Venue {
+  return {
+    slug: partial.exchange.toLowerCase(),
+    pair: "X/USD",
+    category: "spot",
+    kind: "cex",
+    volume24h: 1_000_000,
+    priceUsd: 100,
+    cryptoId: null,
+    recommended: true,
+    marketScore: null,
+    depthUsd: null,
+    lastUpdated: null,
+    listed: "live",
+    ...partial,
+  };
+}
 
 function wrap(partial: Partial<Wrapper> & Pick<Wrapper, "symbol">): Wrapper {
   return {
@@ -133,84 +154,88 @@ describe("fair value", () => {
     assert.equal(ref, null);
   });
 
-  it("sets executable size to 25% of the minimum live depth", () => {
+  it("sizes the buy from the recommended ask book", () => {
+    const price = 9_885;
+    const fair = 10_000;
     const rows = applyFairValue(
       [
         wrap({
           symbol: "PAXG",
-          normalizedUsd: 4100,
+          normalizedUsd: price,
           volume24h: 5_000_000,
           venues: [
-            {
+            spot({
               exchange: "Binance",
-              slug: "binance",
               pair: "PAXG/USDT",
-              category: "spot",
-              kind: "cex",
-              volume24h: 5_000_000,
-              priceUsd: 4100,
-              cryptoId: 4705,
+              askDepthUsd: 40_000,
+              bidDepthUsd: 12_000,
               recommended: true,
-              marketScore: null,
-              depthUsd: 40_000,
-              lastUpdated: null,
-              listed: "live",
-            },
-            {
+            }),
+            spot({
               exchange: "OKX",
-              slug: "okx",
               pair: "PAXG/USDT",
-              category: "spot",
-              kind: "cex",
-              volume24h: 1_000_000,
-              priceUsd: 4102,
-              cryptoId: 4705,
+              askDepthUsd: 90_000,
               recommended: false,
-              marketScore: null,
-              depthUsd: 32_800,
-              lastUpdated: null,
-              listed: "live",
-            },
+            }),
           ],
         }),
       ],
-      4100,
+      fair,
     );
-    assert.equal(rows[0].depthUsd, 32_800);
-    assert.equal(rows[0].capacityUsd, safeCapacityFromDepth(32_800));
-    assert.equal(rows[0].capacityUsd, 8_200);
+    const q = discountBps(price, fair);
+    assert.equal(q, 115);
+    assert.equal(rows[0].depthUsd, 40_000);
+    assert.equal(rows[0].capacityUsd, executableBuyUsd(40_000, q));
+    assert.equal(rows[0].capacityUsd, 40_000);
   });
 
-  it("ignores sample depth when estimating executable size", () => {
-    const rows = applyFairValue(
+  it("does not treat a bid book or a sample print as a buy", () => {
+    const bidOnly = applyFairValue(
       [
         wrap({
           symbol: "PAXG",
-          normalizedUsd: 4100,
+          normalizedUsd: 9_885,
           volume24h: 5_000_000,
           venues: [
-            {
+            spot({
               exchange: "Binance",
-              slug: "binance",
-              pair: "PAXG/USDT",
-              category: "spot",
-              kind: "cex",
-              volume24h: 1,
-              priceUsd: null,
-              cryptoId: 4705,
-              recommended: false,
-              marketScore: null,
-              depthUsd: 48_200,
-              lastUpdated: null,
-              listed: "demo",
-            },
+              depthUsd: 500_000,
+              bidDepthUsd: 500_000,
+              askDepthUsd: null,
+            }),
           ],
         }),
       ],
-      null,
+      10_000,
     );
-    assert.equal(rows[0].capacityUsd, null);
-    assert.equal(rows[0].depthUsd, null);
+    assert.equal(bidOnly[0].depthUsd, null);
+    assert.equal(bidOnly[0].capacityUsd, null);
+
+    const sample = applyFairValue(
+      [
+        wrap({
+          symbol: "PAXG",
+          normalizedUsd: 9_885,
+          volume24h: 5_000_000,
+          venues: [
+            spot({
+              exchange: "Binance",
+              askDepthUsd: 80_000,
+              listed: "demo",
+            }),
+          ],
+        }),
+      ],
+      10_000,
+    );
+    assert.equal(sample[0].capacityUsd, null);
+    assert.equal(sample[0].depthUsd, null);
+  });
+
+  it("returns no size when the quote is inside 15 bps", () => {
+    assert.equal(executableBuyUsd(50_000, 15), 0);
+    assert.equal(executableBuyUsd(null, 40), null);
+    assert.equal(quoteHoldUsd(100_000, 40), 40_000);
   });
 });
 
@@ -354,30 +379,129 @@ describe("ticket", () => {
     assert.match(ticket.headline, /typical, not a fade/);
   });
 
-  it("keeps buy when the wide gap is a 30-day extreme", () => {
+  const extremeSpy = {
+    leftSymbol: "SPYX",
+    rightSymbol: "SPYon",
+    lastBps: 124,
+    minBps: 10,
+    maxBps: 130,
+    percentile: 95,
+    days: 30,
+    avgBps: 20,
+    avgDollarGap: null,
+    extreme: true,
+  };
+
+  it("waits on a 30-day extreme when the buy book is missing", () => {
     const scored = applyFairValue(
       [
         wrap({ symbol: "SPYon", normalizedUsd: 671.75, volume24h: 1_400_000 }),
+        wrap({
+          symbol: "SPYX",
+          normalizedUsd: 680.1,
+          volume24h: 1_700_000,
+          venues: [
+            spot({
+              exchange: "Kraken",
+              pair: "SPYX/USD",
+              depthUsd: 1_000_000,
+              bidDepthUsd: 1_000_000,
+              askDepthUsd: null,
+            }),
+          ],
+        }),
+      ],
+      676,
+    );
+    const ticket = buildTicket(scored, 676, 100_000, "share", { history: extremeSpy });
+    assert.equal(ticket.action, "wait");
+    assert.equal(ticket.buySymbol, "SPYon");
+    assert.match(ticket.headline, /buy book is unmeasured/);
+    assert.match(ticket.detail, /will not call Prefer/);
+    assert.equal(ticket.avoidSymbol, null);
+  });
+
+  it("prefers when the ask book keeps 15 bps on at least $10,000", () => {
+    const ask = 25_000;
+    const scored = applyFairValue(
+      [
+        wrap({
+          symbol: "SPYon",
+          cryptoId: 1,
+          normalizedUsd: 671.75,
+          volume24h: 1_400_000,
+          venues: [
+            spot({
+              exchange: "Kraken",
+              pair: "SPYon/USD",
+              cryptoId: 1,
+              askDepthUsd: ask,
+              bidDepthUsd: 9_000,
+            }),
+          ],
+        }),
         wrap({ symbol: "SPYX", normalizedUsd: 680.1, volume24h: 1_700_000 }),
       ],
       676,
     );
     const ticket = buildTicket(scored, 676, 100_000, "share", {
-      history: {
-        leftSymbol: "SPYX",
-        rightSymbol: "SPYon",
-        lastBps: 124,
-        minBps: 10,
-        maxBps: 130,
-        percentile: 95,
-        days: 30,
-        avgBps: 20,
-        avgDollarGap: null,
-        extreme: true,
-      },
+      history: extremeSpy,
+      venuesByCryptoId: { 1: scored[0].venues },
     });
+    const size = executableBuyUsd(ask, discountBps(671.75, 676));
+    assert.ok(size != null && size >= 10_000);
     assert.equal(ticket.action, "buy");
+    assert.equal(ticket.headline, `You can buy ${formatDollars(size!)} of SPYon`);
+    assert.match(ticket.detail, /on Kraken SPYon\/USD/);
+    assert.match(ticket.detail, /still 15 bps under the liquid reference/);
     assert.equal(ticket.avoidSymbol, null);
+  });
+
+  it("waits when the surviving fill is under $10,000", () => {
+    const scored = applyFairValue(
+      [
+        wrap({
+          symbol: "SPYon",
+          normalizedUsd: 671.75,
+          volume24h: 1_400_000,
+          venues: [
+            spot({
+              exchange: "Kraken",
+              pair: "SPYon/USD",
+              askDepthUsd: 8_000,
+            }),
+          ],
+        }),
+        wrap({ symbol: "SPYX", normalizedUsd: 680.1, volume24h: 1_700_000 }),
+      ],
+      676,
+    );
+    const ticket = buildTicket(scored, 676, 100_000, "share", { history: extremeSpy });
+    assert.equal(ticket.action, "wait");
+    assert.match(ticket.headline, /gives the/);
+    assert.match(ticket.detail, /under the \$10,000 floor/);
+  });
+
+  it("says how far a trap's cheap price holds", () => {
+    const fair = 4_164;
+    const scored = applyFairValue(
+      [
+        wrap({
+          symbol: "XAUM",
+          normalizedUsd: 4_100,
+          volume24h: 7_000,
+          venues: [spot({ exchange: "Gate", pair: "XAUM/USDT", askDepthUsd: 20_000 })],
+        }),
+        wrap({ symbol: "XAUt", normalizedUsd: fair, volume24h: 17_000_000_000 }),
+      ],
+      fair,
+    );
+    const ticket = buildTicket(scored, fair, 1_000_000, "troy ounce");
+    const hold = quoteHoldUsd(20_000, discountBps(4_100, fair));
+    assert.equal(ticket.action, "skip");
+    assert.equal(ticket.trap?.holdUsd, hold);
+    assert.match(ticket.detail, new RegExp(`holds for about ${formatDollars(hold!).replace("$", "\\$")}`));
+    assert.match(ticket.detail, /then it is gone/);
   });
 
   it("keeps a thin tail and a dead quote out of the call", () => {
@@ -778,6 +902,47 @@ describe("venues", () => {
     ]);
     assert.equal(pickPrint(parsed, now).exchange, "FreshX");
   });
+
+  it("reads ask and bid depth, and does not treat unlabeled liquidity as a buy", () => {
+    const parsed = parseVenues([
+      {
+        category: "spot",
+        exchange: { name: "Binance", slug: "binance" },
+        market_pair: "PAXG/USDT",
+        market_pair_base: { crypto_id: 4705 },
+        quotes: [{ symbol: "USD", volume_24h: 12_000_000, price: 4368 }],
+        depth_negative_two: 500_000,
+        depth_positive_two: 120_000,
+      },
+      {
+        category: "spot",
+        exchange: { name: "OKX", slug: "okx" },
+        market_pair: "PAXG/USDT",
+        market_pair_base: { crypto_id: 4705 },
+        quote: { USD: { depth_positive_two: 80_000, depth_negative_two: 70_000 } },
+        quotes: [{ symbol: "USD", volume_24h: 1_000_000, price: 4369 }],
+      },
+      {
+        category: "spot",
+        exchange: { name: "Loose", slug: "loose" },
+        market_pair: "PAXG/USDT",
+        market_pair_base: { crypto_id: 4705 },
+        quotes: [{ symbol: "USD", volume_24h: 100, price: 4370 }],
+        effective_liquidity: 9_000,
+      },
+    ]);
+    const binance = parsed.find((v) => v.exchange === "Binance");
+    const okx = parsed.find((v) => v.exchange === "OKX");
+    const loose = parsed.find((v) => v.exchange === "Loose");
+    assert.equal(binance?.askDepthUsd, 120_000);
+    assert.equal(binance?.bidDepthUsd, 500_000);
+    assert.equal(binance?.depthUsd, 120_000);
+    assert.equal(okx?.askDepthUsd, 80_000);
+    assert.equal(okx?.bidDepthUsd, 70_000);
+    assert.equal(loose?.askDepthUsd, null);
+    assert.equal(loose?.bidDepthUsd, null);
+    assert.equal(loose?.depthUsd, 9_000);
+  });
 });
 
 describe("shareable desk URLs", () => {
@@ -859,7 +1024,9 @@ describe("decision narrative", () => {
     assert.equal(call.verb, "WAIT");
     assert.match(call.detail, /Avoid CGO/);
     assert.match(call.detail, /more than 99% lower volume/);
+    assert.match(call.detail, /CGO has no live/);
     assert.match(call.detail, /under the liquid reference/);
+    assert.equal(call.detail.includes(".."), false);
 
     const opp = basisOpportunity(desk);
     assert.equal(opp?.left, "PAXG");
@@ -869,6 +1036,7 @@ describe("decision narrative", () => {
     const why = whyLines(desk).join(" ");
     assert.match(why, /inside the band where the desk does not call a trade/);
     assert.match(why, /fails the \$1\.00M daily volume floor/);
+    assert.match(why, /CGO has no live/);
     assert.match(why, /Liquid reference is the volume-weighted price/);
     assert.match(why, /Coinbase PAXG\/USD/);
 
@@ -893,36 +1061,75 @@ describe("decision narrative", () => {
     assert.ok(endpointHits(desk.endpointsUsed).every((hit) => hit.live));
   });
 
-  it("says trade when the wide gap is a 30-day extreme", () => {
+  it("names the executable buy when the wide gap survives the ask book", () => {
     const scored = applyFairValue(
       [
         wrap({
           symbol: "SPYon",
+          cryptoId: 1,
           normalizedUsd: 671.75,
           volume24h: 1_400_000,
-          venues: [],
+          venues: [
+            spot({
+              exchange: "Kraken",
+              pair: "SPYon/USD",
+              cryptoId: 1,
+              askDepthUsd: 25_000,
+            }),
+          ],
         }),
         wrap({
           symbol: "SPYX",
           normalizedUsd: 680.1,
           volume24h: 1_700_000,
-          venues: [
-            {
-              exchange: "Kraken",
-              slug: "kraken",
-              pair: "SPYX/USD",
-              category: "spot",
-              kind: "cex",
-              volume24h: 900_000,
-              priceUsd: 680.1,
-              cryptoId: 2,
-              recommended: true,
-              marketScore: null,
-              depthUsd: null,
-              lastUpdated: null,
-            },
-          ],
+          venues: [],
         }),
+      ],
+      676,
+    );
+    const ticket = buildTicket(scored, 676, 100_000, "share", {
+      history: {
+        leftSymbol: "SPYon",
+        rightSymbol: "SPYX",
+        lastBps: 124,
+        minBps: 10,
+        maxBps: 130,
+        percentile: 96,
+        days: 30,
+        avgBps: 20,
+        avgDollarGap: null,
+        extreme: true,
+      },
+      venuesByCryptoId: { 1: scored.find((w) => w.symbol === "SPYon")?.venues ?? [] },
+    });
+    const cluster = goldFixture().cluster;
+    const desk = {
+      ...goldFixture(),
+      cluster: { ...cluster, id: "spy", label: "SPY", unit: "share", volumeFloorUsd: 100_000 },
+      liquidReferenceUsd: 676,
+      wrappers: scored,
+      main: scored,
+      dust: [],
+      ticket,
+      spread: null,
+      issuer: null,
+    };
+    const call = deskCall(desk);
+    assert.equal(call.verb, "PREFER SPYon");
+    assert.match(call.detail, /You can buy \$11,967 of SPYon on Kraken SPYon\/USD/);
+    assert.match(call.detail, /still 15 bps under the liquid reference/);
+    const why = whyLines(desk).join(" ");
+    assert.match(why, /SPYon is \$4\.25 cheaper per share than the liquid reference/);
+    assert.match(why, /96th percentile/);
+    assert.match(why, /unusually wide/);
+    assert.match(why, /You can buy \$11,967 on Kraken SPYon\/USD/);
+  });
+
+  it("waits out loud when an extreme discount has no buy book", () => {
+    const scored = applyFairValue(
+      [
+        wrap({ symbol: "SPYon", normalizedUsd: 671.75, volume24h: 1_400_000 }),
+        wrap({ symbol: "SPYX", normalizedUsd: 680.1, volume24h: 1_700_000 }),
       ],
       676,
     );
@@ -944,6 +1151,10 @@ describe("decision narrative", () => {
     const desk = {
       ...goldFixture(),
       cluster: { ...cluster, id: "spy", label: "SPY", unit: "share", volumeFloorUsd: 100_000 },
+      venueCoverage: {
+        status: "plan-gated" as const,
+        detail: "Growth+ market pairs are missing.",
+      },
       liquidReferenceUsd: 676,
       wrappers: scored,
       main: scored,
@@ -952,11 +1163,11 @@ describe("decision narrative", () => {
       spread: null,
       issuer: null,
     };
-    assert.equal(deskCall(desk).verb, "PREFER SPYon");
+    assert.equal(deskCall(desk).verb, "WAIT");
+    assert.match(deskCall(desk).detail, /buy book is unmeasured/);
     const why = whyLines(desk).join(" ");
-    assert.match(why, /SPYon is \$4\.25 cheaper per share than the liquid reference/);
-    assert.match(why, /96th percentile/);
-    assert.match(why, /unusually wide/);
+    assert.match(why, /fill does not keep it/);
+    assert.match(why, /will not call Prefer or invent a size from 24h volume/);
   });
 });
 
