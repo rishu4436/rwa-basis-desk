@@ -221,6 +221,7 @@ export function DecisionHero({
           </p>
           <p className="mt-3 text-sm leading-6 text-white/70">{call.detail}</p>
           <ExecutionNote desk={desk} notional={notional} />
+          <LoadEvidence desk={desk} />
         </div>
       </div>
     </section>
@@ -289,10 +290,34 @@ function ExecutionNote({
         <p>
           {gated
             ? "Venue depth is unavailable on the Startup plan. Executable size is not estimated from 24h volume."
-            : "No ±2% buy depth on the preferred wrapper, so executable size stays blank."}
+            : "market-pairs/list returned venues and omitted ±2% ask depth, so executable size stays blank."}
         </p>
       )}
       <p className="mt-1 text-white/35">Gross wrapper basis. Not a locked-in profit.</p>
+    </div>
+  );
+}
+
+function LoadEvidence({ desk }: { desk: DeskSnapshot }) {
+  const hits = endpointHits(desk.endpointsUsed).filter((hit) => hit.live);
+  const depthOmitted =
+    desk.venueCoverage.status === "live" &&
+    desk.wrappers.every((wrapper) => wrapper.depthUsd == null);
+  return (
+    <div className="mt-3 border-t border-white/10 pt-3">
+      <p className="text-[11px] uppercase tracking-[0.16em] text-white/35">This load</p>
+      <ul className="mt-2 space-y-0.5 font-mono text-[10px] leading-4 text-white/60">
+        {hits.map((hit) => (
+          <li key={hit.path}>{hit.path}</li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[11px] leading-5 text-white/50">
+        map {desk.evidence.rwaMapCount} · quotes {desk.evidence.rwaQuoteCount} · pairs{" "}
+        {desk.evidence.pairCount}
+        {depthOmitted
+          ? ". These market-pair rows omit ±2% ask depth, so the dollar size stays blank."
+          : "."}
+      </p>
     </div>
   );
 }

@@ -63,6 +63,24 @@ export default function MethodologyPage() {
         </p>
       </section>
       <section>
+        <h2 className="text-base font-medium text-white">A live load, and one arithmetic check</h2>
+        <p>
+          Open the live Gold ticket at{" "}
+          <a href="/desk?asset=GOLD" className="text-gold-400 hover:underline">
+            /desk?asset=GOLD
+          </a>
+          . The desk call and the endpoints from that load sit on the same card. Counts
+          for the map, the quotes, and the market pairs are under the call.
+        </p>
+        <p className="mt-3">
+          A worked fill, computed from the formula above and not from today&apos;s book:
+          ±2% ask depth of $25,000 and a 62.9 bps discount is 25,000 × (62.9 − 15) / 100
+          = $11,967. That clears the $10,000 floor, so the ticket can say Prefer and name
+          the venue. When the live rows omit ask depth, that dollar stays blank and the
+          call stays Wait.
+        </p>
+      </section>
+      <section>
         <h2 className="text-base font-medium text-white">What Prefer means</h2>
         <p>
           Prefer names the cheapest core wrapper that clears the dollar floor, the lead-volume

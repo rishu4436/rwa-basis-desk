@@ -72,7 +72,7 @@ const PIPELINE = [
   { label: "RWA map", note: "rwa_id" },
   { label: "RWA quotes", note: "tokens[]" },
   { label: "crypto_id", note: "price + volume" },
-  { label: "Market pairs", note: "Growth+ venues" },
+  { label: "Market pairs", note: "venues, depth if sent" },
   { label: "Liquidity filter", note: "core of the book" },
   { label: "Basis engine", note: "liquid reference" },
   { label: "Desk call", note: "prefer / skip / wait" },
@@ -360,7 +360,7 @@ export function whyLines(desk: DeskSnapshot): string[] {
     lines.push(
       gated
         ? "±2% buy depth is a Growth+ market-pairs field, so the desk will not call Prefer or invent a size from 24h volume."
-        : "±2% buy depth is missing, so the desk will not call Prefer or invent a size from 24h volume.",
+        : "market-pairs/list returned venues and omitted ±2% ask depth, so the desk will not call Prefer or invent a size from 24h volume.",
     );
   } else if (gated && buy?.depthUsd == null) {
     lines.push(

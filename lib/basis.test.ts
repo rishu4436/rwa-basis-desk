@@ -1169,6 +1169,49 @@ describe("decision narrative", () => {
     assert.match(why, /fill does not keep it/);
     assert.match(why, /will not call Prefer or invent a size from 24h volume/);
   });
+
+  it("names omitted ask depth when venues came back without a book", () => {
+    const scored = applyFairValue(
+      [
+        wrap({ symbol: "SPYon", normalizedUsd: 671.75, volume24h: 1_400_000 }),
+        wrap({ symbol: "SPYX", normalizedUsd: 680.1, volume24h: 1_700_000 }),
+      ],
+      676,
+    );
+    const ticket = buildTicket(scored, 676, 100_000, "share", {
+      history: {
+        leftSymbol: "SPYon",
+        rightSymbol: "SPYX",
+        lastBps: 124,
+        minBps: 10,
+        maxBps: 130,
+        percentile: 96,
+        days: 30,
+        avgBps: 20,
+        avgDollarGap: null,
+        extreme: true,
+      },
+    });
+    const cluster = goldFixture().cluster;
+    const desk = {
+      ...goldFixture(),
+      cluster: { ...cluster, id: "spy", label: "SPY", unit: "share", volumeFloorUsd: 100_000 },
+      venueCoverage: {
+        status: "live" as const,
+        detail: "Spot venues from market-pairs/list.",
+      },
+      liquidReferenceUsd: 676,
+      wrappers: scored,
+      main: scored,
+      dust: [],
+      ticket,
+      spread: null,
+      issuer: null,
+    };
+    const why = whyLines(desk).join(" ");
+    assert.match(why, /omitted ±2% ask depth/);
+    assert.equal(why.includes("Growth+"), false);
+  });
 });
 
 describe("duplicate tickers", () => {

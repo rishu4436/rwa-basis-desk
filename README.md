@@ -92,7 +92,7 @@ Video: https://youtu.be/X-LoNis5MQc
 
 1. Open **Gold**. The tradeable board is the core: above the volume floor and at least 10% of the lead wrapper's volume. On gold that is XAUt / PAXG.
 2. A **trap** banner flags the cheap illiquid wrapper (CGO / XAUM in the drawer). A zero-volume quote is listed as no market and cannot set the call. Ondo total-return tokens sit in their own row, because the dividend is inside the price. The ticket itself is the core — usually **no trade** if XAUt and PAXG are tight.
-3. **Where to trade** uses `market-pairs/list` when the key can call it. That endpoint is Growth+. On the hackathon Startup plan the desk says so and labels any sample print as not live. Sample depth never sets Prefer.
+3. **Where to trade** uses `market-pairs/list`. On the hackathon Startup key the rows include the venue, price, and 24h volume, and omit ±2% depth. The desk lists the venues and leaves executable size blank. A 1006 rejection is labeled plan-gated. Sample depth never sets Prefer.
 4. 30-day chart: Prefer only if the discount is a range extreme and the recommended venue's ±2% ask book still leaves at least $10,000 of that discount after the fill. Otherwise the ticket stays **no trade**. A missing book does not become a size.
 5. Switch to **S&P 500 (SPY)** and **NVIDIA**.
 6. Footer lists the live endpoints that actually ran.
@@ -118,7 +118,7 @@ Gram-denominated gold (CGO and similar) is scaled to **USD per troy ounce**.
 |---|---|
 | `GET /v5/real-world-assets/map` | Resolve GOLD / NVDA / SPY to `rwa_id` (0 credits) |
 | `GET /v5/real-world-assets/quotes/latest` | Asset quotes + `tokens[]` with issuer |
-| `GET /v5/real-world-assets/market-pairs/list` | Spot venues and ±2% depth. **Growth+ only.** Startup shows a plan notice instead of an empty book |
+| `GET /v5/real-world-assets/market-pairs/list` | Spot venues. The Startup key returns symbol, price, and 24h volume, and omits ±2% depth. Missing depth stays blank. A 1006 is labeled plan-gated |
 | `GET /v5/real-world-assets/info` | Underlying card: CIK → EDGAR, industry, about |
 | `GET /v5/real-world-assets/issuers` | Issuer card: site, token roster, `num_tokens` |
 | `GET /v3/cryptocurrency/quotes/latest` | Per-wrapper price, volume, market cap, slug |
@@ -126,7 +126,7 @@ Gram-denominated gold (CGO and similar) is scaled to **USD per troy ounce**.
 
 ## API feedback (for CMC)
 
-- **Market pairs are Growth+.** The hackathon key is Startup, so `/v5/real-world-assets/market-pairs/list` is not available. The desk still prices wrappers from RWA quotes and crypto quotes, and it says the venue gap out loud instead of showing an empty "Where to trade".
+- **Market-pair rows omit ±2% depth.** On the hackathon Startup key, `/v5/real-world-assets/market-pairs/list` returns the venue, price, and 24h volume. Ask depth is absent, so executable size stays blank and a missing book cannot become Prefer. A subscription rejection (`error_code` 1006) is labeled plan-gated.
 - **No underlying NAV.** There is no LBMA / NYSE print on the RWA family, so the liquid reference is wrapper vs wrapper, not vs the real asset.
 - **No RWA history.** Spread charts have to join `crypto_id` into crypto OHLCV.
 - **Units are inconsistent.** Some gold tokens are per ounce, some per gram. A naive price sort is wrong.

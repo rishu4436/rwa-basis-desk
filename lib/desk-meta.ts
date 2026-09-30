@@ -1,7 +1,7 @@
 /** Tool names and API notes safe to import from pages. No API client. */
 
 export const API_FRICTION = [
-  "market-pairs/list returns error_code 1006 on the hackathon Startup plan. The desk labels venue coverage as plan-gated and will not turn a missing book into a Prefer or a size.",
+  "market-pairs/list on the hackathon Startup key returns venues with price and 24h volume, and omits ±2% depth. The desk lists those venues and will not turn a missing book into a Prefer or a size. A subscription rejection (error_code 1006) is labeled plan-gated.",
   "No underlying NAV or exchange print on the RWA family. The liquid reference is wrapper versus wrapper. Any Yahoo print is a labeled benchmark and is not mixed into the ticket.",
   "No RWA history endpoint. 30-day spread joins each wrapper crypto_id into /v2/cryptocurrency/ohlcv/historical.",
   "Gold units are inconsistent (troy ounce and gram). Gram tokens are scaled before any price sort.",

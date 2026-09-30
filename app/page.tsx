@@ -33,6 +33,7 @@ const focus =
 const endpoints = [
   "/v5/real-world-assets/map",
   "/v5/real-world-assets/quotes/latest",
+  "/v5/real-world-assets/market-pairs/list",
   "/v5/real-world-assets/info",
   "/v5/real-world-assets/issuers",
   "/v3/cryptocurrency/quotes/latest",
@@ -168,6 +169,18 @@ export default function Landing() {
                 View GitHub
               </a>
             </div>
+            <p className="mt-4 max-w-xl text-sm leading-6 text-[#858B96]">
+              Judges: open the{" "}
+              <Link href={DESK} className={`text-[#E3B341] hover:underline ${focus} rounded-sm`}>
+                live Gold ticket
+              </Link>
+              . The call and the CoinMarketCap endpoints from that load are on the same screen.
+              The plan limit is on{" "}
+              <Link href="/feedback" className={`text-[#E3B341] hover:underline ${focus} rounded-sm`}>
+                API feedback
+              </Link>
+              .
+            </p>
             <ul className="mt-6 flex flex-wrap gap-x-4 gap-y-2 text-[11px] uppercase tracking-[0.14em] text-[#858B96]">
               <li>Powered by CoinMarketCap RWA API</li>
               <li className="text-white/20" aria-hidden>
@@ -588,7 +601,13 @@ export default function Landing() {
             </ol>
             <p className="mt-6 max-w-xl text-sm leading-6 text-[#858B96]">
               Basis Desk is built around CMC&apos;s RWA identifier and token
-              relationship model.
+              relationship model. On the hackathon Startup key,{" "}
+              <span className="font-mono text-[12px] text-[#F1EEE6]/80">
+                market-pairs/list
+              </span>{" "}
+              returns the venue, price, and 24h volume, and omits ±2% depth. The
+              desk lists the venues and leaves the dollar size blank. A rejection
+              with error 1006 is labeled plan-gated and cannot become Prefer.
             </p>
           </div>
         </section>
